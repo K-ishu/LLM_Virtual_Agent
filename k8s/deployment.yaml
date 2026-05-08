@@ -18,11 +18,14 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: llm-se-assistant
-          image: ghcr.io/OWNER/REPOSITORY:latest
+          image: ghcr.io/k-ishu/llm_virtual_agent:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -62,6 +65,9 @@ spec:
               memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: false
