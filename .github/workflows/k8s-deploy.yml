@@ -1,0 +1,52 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Full image reference to deploy, e.g. ghcr.io/owner/repo:latest"
+        required: true
+      namespace:
+        description: "Kubernetes namespace"
+        required: false
+        default: "llm-se-assistant"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Apply manifests and rollout
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        env:
+          KUBE_CONFIG_BASE64: ${{ secrets.KUBE_CONFIG_BASE64 }}
+        run: |
+          if [ -z "$KUBE_CONFIG_BASE64" ]; then
+            echo "KUBE_CONFIG_BASE64 secret is required for Kubernetes deployment." >&2
+            exit 1
+          fi
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG_BASE64" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Apply Kubernetes manifests
+        run: kubectl apply -f k8s/
+
+      - name: Set deployment image
+        run: |
+          kubectl -n "${{ inputs.namespace }}" set image \
+            deployment/llm-se-assistant \
+            llm-se-assistant="${{ inputs.image }}"
+
+      - name: Wait for rollout
+        run: kubectl -n "${{ inputs.namespace }}" rollout status deployment/llm-se-assistant --timeout=180s

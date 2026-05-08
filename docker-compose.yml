@@ -1,0 +1,22 @@
+services:
+  llm-se-assistant:
+    build:
+      context: .
+    image: llm-se-assistant:local
+    ports:
+      - "${APP_PORT:-8501}:${PORT:-8501}"
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-8501}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:${PORT:-8501}/_stcore/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

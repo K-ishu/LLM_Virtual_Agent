@@ -1,0 +1,6 @@
+{"source_file":"seed/student_study_planner","label":"functional","text":"FR-1: The system shall allow students to create, edit, and delete courses, deadlines, and available study time blocks."}
+{"source_file":"seed/student_study_planner","label":"functional","text":"FR-2: The system shall generate a weekly study schedule based on deadlines, course priority, available hours, and user preferences."}
+{"source_file":"seed/student_study_planner","label":"usability","text":"NFR-1: The system shall present generated schedules in a readable calendar view and allow students to manually revise suggested sessions."}
+{"source_file":"seed/student_study_planner","label":"privacy","text":"NFR-2: The system shall not expose student profile information, courses, deadlines, or study habits to unauthorized users."}
+{"source_file":"seed/security_acceptance","label":"security","text":"SEC-1: The system shall require authentication before users can access personal project, schedule, or profile data."}
+{"source_file":"seed/security_acceptance","label":"security","text":"SEC-2: The system shall validate all user inputs before storing or processing them to reduce injection and malformed input risks."}

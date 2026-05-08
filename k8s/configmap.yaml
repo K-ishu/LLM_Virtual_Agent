@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-se-assistant-config
+  namespace: llm-se-assistant
+data:
+  PORT: "8501"
+  LLM_PROVIDER: "mock"
+  OPENAI_MODEL: "gpt-4o-mini"
+  OPENAI_BASE_URL: ""
