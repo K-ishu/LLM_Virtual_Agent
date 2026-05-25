@@ -10,6 +10,8 @@ from app.corpus import retrieve_context
 from app.llm_client import LLMClient
 from app.prompts import (
     ARCHITECTURE_PROMPT,
+    ATTACK_SCENARIO_PROMPT,
+    CODE_ANALYSIS_PROMPT,
     REQUIREMENTS_PROMPT,
     REVIEW_PROMPT,
     SYSTEM_PROMPT,
@@ -96,3 +98,35 @@ def suggest_architecture(
     response = client.chat(SYSTEM_PROMPT, prompt)
     data = _extract_json(response.text)
     return _attach_metadata(data, response.provider, response.model, "suggest_architecture", use_context)
+
+
+
+def analyze_code(code_text: str, client: LLMClient | None = None, use_context: bool = False) -> dict[str, Any]:
+    """Analyze a code snippet for behavior, quality, bugs, and basic security issues."""
+    client = client or LLMClient()
+    prompt = CODE_ANALYSIS_PROMPT.format(
+        code_text=code_text,
+        reference_context=_context_for(code_text, use_context),
+    )
+    response = client.chat(SYSTEM_PROMPT, prompt)
+    data = _extract_json(response.text)
+    return _attach_metadata(data, response.provider, response.model, "analyze_code", use_context)
+
+
+def generate_attack_scenarios(
+    project_description: str,
+    requirements_text: str,
+    client: LLMClient | None = None,
+    use_context: bool = False,
+) -> dict[str, Any]:
+    """Generate defensive attack, misuse, and unsafe scenarios with mitigations."""
+    client = client or LLMClient()
+    combined_query = f"{project_description}\n\n{requirements_text}"
+    prompt = ATTACK_SCENARIO_PROMPT.format(
+        project_description=project_description,
+        requirements_text=requirements_text,
+        reference_context=_context_for(combined_query, use_context),
+    )
+    response = client.chat(SYSTEM_PROMPT, prompt)
+    data = _extract_json(response.text)
+    return _attach_metadata(data, response.provider, response.model, "generate_attack_scenarios", use_context)

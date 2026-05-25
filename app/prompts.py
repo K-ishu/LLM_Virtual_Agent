@@ -113,3 +113,63 @@ Return valid JSON with exactly this schema:
   "human_in_the_loop_points": ["..."]
 }}
 """.strip()
+
+
+CODE_ANALYSIS_PROMPT = """
+Task: Analyze a code snippet for software engineering quality.
+
+Code snippet:
+{code_text}
+
+Local reference context from downloaded datasets, if available:
+{reference_context}
+
+Instructions:
+- Focus on defensive review, maintainability, reliability, readability, and basic security.
+- Do not claim that the code is vulnerable unless the evidence is visible in the snippet.
+- Do not provide exploit instructions; provide safe remediation guidance.
+- If language or execution context is unclear, state assumptions.
+
+Return valid JSON with exactly this schema:
+{{
+  "summary": "...",
+  "assumptions": ["..."],
+  "detected_language": "...",
+  "quality_findings": [
+    {{"id": "QF-1", "severity": "low|medium|high", "category": "bug|readability|maintainability|performance|security|privacy|reliability|other", "evidence": "...", "recommendation": "..."}}
+  ],
+  "refactoring_suggestions": ["..."],
+  "safe_test_ideas": ["..."]
+}}
+""".strip()
+
+ATTACK_SCENARIO_PROMPT = """
+Task: Generate defensive attack, misuse, and unsafe scenarios for the software system.
+
+Project description:
+{project_description}
+
+Requirements:
+{requirements_text}
+
+Local reference context from downloaded datasets, if available:
+{reference_context}
+
+Instructions:
+- Generate scenarios only for defensive engineering, risk assessment, testing, and mitigation.
+- Avoid operational exploit steps, real credential theft, malware, or harmful instructions.
+- Include privacy, security, safety, abuse, and human-in-the-loop risks when relevant.
+- Make each mitigation actionable and testable.
+
+Return valid JSON with exactly this schema:
+{{
+  "threat_model_assumptions": ["..."],
+  "attack_scenarios": [
+    {{"id": "AS-1", "title": "...", "asset_at_risk": "...", "threat_actor": "...", "scenario": "...", "impact": "low|medium|high", "likelihood": "low|medium|high", "mitigations": ["..."], "validation_tests": ["..."]}}
+  ],
+  "unsafe_scenarios": [
+    {{"id": "US-1", "title": "...", "scenario": "...", "affected_users": ["..."], "harm": "...", "mitigations": ["..."], "validation_tests": ["..."]}}
+  ],
+  "residual_risks": ["..."]
+}}
+""".strip()

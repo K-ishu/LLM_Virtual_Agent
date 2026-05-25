@@ -132,4 +132,59 @@ class LLMClient:
                 "human_in_the_loop_points": ["User approves requirements", "User refines ambiguous requirements", "User validates generated test cases"],
             }
             return json.dumps(data, indent=2)
+
+        if "analyze a code snippet" in lower:
+            data = {
+                "summary": "The snippet can be reviewed for behavior, maintainability, and defensive security concerns.",
+                "assumptions": ["The code snippet is incomplete and reviewed statically."],
+                "detected_language": "unknown or inferred from snippet",
+                "quality_findings": [
+                    {"id": "QF-1", "severity": "medium", "category": "reliability", "evidence": "Input validation and error handling are not visible in the snippet.", "recommendation": "Validate inputs, handle expected exceptions, and add tests for invalid input."},
+                    {"id": "QF-2", "severity": "medium", "category": "security", "evidence": "No authentication, authorization, or secret-handling context is visible.", "recommendation": "Ensure secrets are stored in environment variables and access checks are explicit."},
+                ],
+                "refactoring_suggestions": ["Separate input validation, business logic, and persistence code where applicable."],
+                "safe_test_ideas": ["Test valid input, invalid input, boundary cases, and authorization failures."],
+            }
+            return json.dumps(data, indent=2)
+        if "generate defensive attack" in lower:
+            data = {
+                "threat_model_assumptions": ["The system is a web application that stores user data and exposes authenticated workflows."],
+                "attack_scenarios": [
+                    {
+                        "id": "AS-1",
+                        "title": "Unauthorized access to another user's records",
+                        "asset_at_risk": "User personal data",
+                        "threat_actor": "Authenticated malicious user",
+                        "scenario": "A user attempts to access or modify resources belonging to another user because object-level authorization is missing.",
+                        "impact": "high",
+                        "likelihood": "medium",
+                        "mitigations": ["Enforce object-level authorization on every request.", "Use server-side ownership checks."],
+                        "validation_tests": ["Verify that user A cannot read, update, or delete user B resources."],
+                    },
+                    {
+                        "id": "AS-2",
+                        "title": "Abuse of weak authentication policy",
+                        "asset_at_risk": "Accounts and session integrity",
+                        "threat_actor": "External attacker",
+                        "scenario": "Repeated login attempts or weak password policies increase the risk of account compromise.",
+                        "impact": "medium",
+                        "likelihood": "medium",
+                        "mitigations": ["Add rate limiting.", "Require strong passwords or multi-factor authentication where appropriate."],
+                        "validation_tests": ["Verify lockout or throttling behavior after repeated failed login attempts."],
+                    },
+                ],
+                "unsafe_scenarios": [
+                    {
+                        "id": "US-1",
+                        "title": "Unsafe or misleading recommendation",
+                        "scenario": "The assistant suggests an action without enough context or without warning that human validation is required.",
+                        "affected_users": ["End users", "Engineers"],
+                        "harm": "Incorrect decisions, privacy exposure, or system misuse.",
+                        "mitigations": ["Display assumptions and confidence limits.", "Require human approval for high-impact outputs."],
+                        "validation_tests": ["Submit incomplete requirements and verify the assistant asks clarification questions instead of inventing facts."],
+                    }
+                ],
+                "residual_risks": ["Some risks require domain expert review and cannot be fully eliminated by prompt engineering."],
+            }
+            return json.dumps(data, indent=2)
         return json.dumps({"message": "Mock response: unsupported task."}, indent=2)

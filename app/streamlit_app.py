@@ -15,6 +15,8 @@ if str(PROJECT_ROOT) not in sys.path:
 import streamlit as st
 
 from app.assistant_core import (
+    analyze_code,
+    generate_attack_scenarios,
     generate_requirements,
     generate_test_cases,
     review_requirements,
@@ -25,7 +27,7 @@ from app.corpus import corpus_status, retrieve_context
 st.set_page_config(page_title="LLM SE Assistant", page_icon="🤖", layout="wide")
 
 st.title("LLM-Powered Virtual Assistant for Software Engineering")
-st.caption("Human-machine cooperation prototype for requirements, review, tests, and architecture.")
+st.caption("Human-machine cooperation prototype for requirements, design, tests, code analysis, and defensive unsafe-scenario generation.")
 
 provider = os.getenv("LLM_PROVIDER", "mock")
 status = corpus_status()
@@ -62,11 +64,13 @@ if "requirements_json" not in st.session_state:
 if "requirements_text" not in st.session_state:
     st.session_state.requirements_text = ""
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "1. Generate requirements",
     "2. Review requirements",
     "3. Generate test cases",
     "4. Suggest architecture",
+    "5. Analyze code",
+    "6. Attack / unsafe scenarios",
 ])
 
 with tab1:
@@ -110,3 +114,31 @@ with tab4:
     if st.button("Suggest architecture"):
         with st.spinner("Suggesting architecture..."):
             st.json(suggest_architecture(project_description, arch_requirements_text, use_context=use_context))
+
+
+with tab5:
+    code_text = st.text_area(
+        "Code snippet to analyze",
+        value="""def login(username, password):
+    if username == 'admin' and password == 'admin':
+        return True
+    return False
+""",
+        height=260,
+        key="code_analysis_text",
+        help="Paste a short code snippet. The assistant performs static, defensive analysis only.",
+    )
+    if st.button("Analyze code"):
+        with st.spinner("Analyzing code..."):
+            st.json(analyze_code(code_text, use_context=use_context))
+
+with tab6:
+    attack_requirements_text = st.text_area(
+        "Requirements/context for attack and unsafe-scenario generation",
+        value=st.session_state.requirements_text,
+        height=300,
+        key="attack_requirements_text",
+    )
+    if st.button("Generate attack and unsafe scenarios"):
+        with st.spinner("Generating defensive risk scenarios..."):
+            st.json(generate_attack_scenarios(project_description, attack_requirements_text, use_context=use_context))

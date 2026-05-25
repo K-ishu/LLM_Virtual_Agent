@@ -17,3 +17,14 @@ class ArchitectureRequest(BaseModel):
     project_description: str = Field(min_length=10)
     requirements_text: str = Field(min_length=10)
     use_context: bool = False
+
+
+class CodeTextRequest(BaseModel):
+    code_text: str = Field(min_length=5)
+    use_context: bool = False
+
+
+class AttackScenarioRequest(BaseModel):
+    project_description: str = Field(min_length=10)
+    requirements_text: str = Field(min_length=10)
+    use_context: bool = False
