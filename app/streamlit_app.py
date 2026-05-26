@@ -199,7 +199,10 @@ def safe_json(data: Any) -> str:
     except TypeError:
         return str(data)
 
-
+def escape_text(value) -> str:
+    """Escape text before rendering it inside custom HTML."""
+    import html
+    return html.escape(str(value or ""))
 def is_short_or_generic(text: str) -> bool:
     cleaned = (text or "").strip().lower()
     generic = {"hi", "hello", "test", "ok", "yes", "no", "ciao", "salam", "سلام"}
