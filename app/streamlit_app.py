@@ -225,18 +225,49 @@ def get_client() -> LLMClient:
 
 
 def general_ai_response(user_message: str) -> dict[str, Any]:
-    """General-purpose assistant for non-workflow questions."""
+    """General-purpose assistant for normal chat, not JSON workflow output."""
     system_prompt = """
-You are a helpful AI assistant inside a Software Engineering Assistant app.
-Answer clearly and directly.
-If the user asks about software engineering, provide practical engineering guidance.
-If the user asks something general, answer normally.
-Do not return JSON. Return readable plain text.
+You are a helpful general AI assistant inside a software engineering assistant application.
+
+Your job:
+- Answer normal questions directly.
+- Explain technical topics clearly.
+- Help with software engineering, reports, presentations, translation, and project ideas.
+- If the user asks "what is X?", explain X clearly.
+- If the user asks for advice, give practical steps.
+
+Rules:
+- Do NOT return JSON.
+- Do NOT return arrays like [1] or [].
+- Do NOT answer with only symbols.
+- Use normal readable text.
+- Keep the answer concise unless the user asks for details.
 """
+
     client = LLMClient()
     response = client.chat(system_prompt, user_message)
+    answer = str(response.text or "").strip()
+
+    invalid_answers = {"", "[]", "[1]", "{}", "null", "None"}
+
+    if answer in invalid_answers or len(answer) < 3:
+        answer = (
+            "I could not generate a useful answer from the current model. "
+            "Please check that the app is using a real provider, not the mock provider."
+        )
+
+    # If model accidentally returns JSON with a message field, unwrap it.
+    try:
+        parsed = json.loads(answer)
+        if isinstance(parsed, dict):
+            answer = parsed.get("answer") or parsed.get("message") or answer
+        elif isinstance(parsed, list):
+            answer = "The model returned an invalid list response. Please try again with a clearer question."
+    except Exception:
+        pass
+
     return {
-        "answer": response.text,
+        "answer": answer,
         "metadata": {
             "provider": response.provider,
             "model": response.model,
@@ -244,7 +275,6 @@ Do not return JSON. Return readable plain text.
             "used_local_context": False,
         },
     }
-
 
 def show_metadata(data: dict[str, Any]) -> None:
     metadata = data.get("metadata")
