@@ -1,19 +1,18 @@
 """Professional Streamlit UI for the LLM-Powered Software Engineering Assistant.
 
 Drop-in replacement for: app/streamlit_app.py
-
-This version improves:
-- professional layout and styling
-- structured cards instead of raw JSON-only output
-- workflow guidance
-- safer input validation
-- clean rendering for requirements, reviews, tests, architecture, code analysis, and security scenarios
 """
 
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import streamlit as st
 
@@ -149,11 +148,11 @@ EXAMPLE_PROJECT = (
     "The system suggests a weekly study plan and lets the student revise it."
 )
 
-EXAMPLE_CODE = '''def login(username, password):
+EXAMPLE_CODE = """def login(username, password):
     if username == "admin" and password == "admin":
         return True
     return False
-'''
+"""
 
 
 def safe_json(data: Any) -> str:
@@ -172,10 +171,6 @@ def is_short_or_generic(text: str) -> bool:
 
 def get_client() -> LLMClient:
     return LLMClient()
-
-
-def render_badges(items: list[str]) -> None:
-    st.markdown("".join([f'<span class="badge badge-gray">{item}</span>' for item in items]), unsafe_allow_html=True)
 
 
 def show_metadata(data: dict[str, Any]) -> None:
@@ -465,7 +460,13 @@ def call_backend(func, *args, **kwargs) -> dict[str, Any] | None:
         return None
 
 
-# Sidebar
+def get_requirements_or_project_text(project_text: str) -> str:
+    requirements = st.session_state.get("result_requirements")
+    if isinstance(requirements, dict) and requirements:
+        return safe_json(requirements)
+    return project_text
+
+
 client = get_client()
 provider = client.provider
 model = client.model
@@ -492,14 +493,15 @@ with st.sidebar:
     st.divider()
     if st.button("Load example project", use_container_width=True):
         st.session_state["project_description"] = EXAMPLE_PROJECT
+        for key in ["review_input", "test_input", "arch_input", "attack_input"]:
+            st.session_state.pop(key, None)
 
     if st.button("Clear current output", use_container_width=True):
         for key in list(st.session_state.keys()):
-            if key.startswith("result_"):
+            if key.startswith("result_") or key in {"review_input", "test_input", "arch_input", "attack_input"}:
                 del st.session_state[key]
 
 
-# Header
 st.markdown(
     f"""
 <div class="hero-card">
@@ -541,10 +543,13 @@ for col, (num, title, desc) in zip(cols, workflow_items):
         )
 
 st.markdown("### Project Input")
+
+if "project_description" not in st.session_state:
+    st.session_state["project_description"] = EXAMPLE_PROJECT
+
 project_description = st.text_area(
     "Describe the software system",
     key="project_description",
-    value=st.session_state.get("project_description", EXAMPLE_PROJECT),
     height=140,
     placeholder=EXAMPLE_PROJECT,
 )
@@ -605,10 +610,9 @@ with tab_review:
     st.markdown("#### Review requirements quality")
     st.caption("Detects ambiguity, missing acceptance criteria, privacy/security gaps, and unverifiable statements.")
 
-    default_requirements = safe_json(st.session_state.get("result_requirements", {}))
     requirements_text = st.text_area(
         "Requirements to review",
-        value=default_requirements if default_requirements != "{}" else project_description,
+        value=get_requirements_or_project_text(project_description),
         height=180,
         key="review_input",
     )
@@ -627,10 +631,9 @@ with tab_tests:
     st.markdown("#### Generate test cases")
     st.caption("Transforms requirements into test cases with steps, expected results, priority, and coverage notes.")
 
-    default_requirements = safe_json(st.session_state.get("result_requirements", {}))
     test_input = st.text_area(
         "Requirements for test generation",
-        value=default_requirements if default_requirements != "{}" else project_description,
+        value=get_requirements_or_project_text(project_description),
         height=180,
         key="test_input",
     )
@@ -649,10 +652,9 @@ with tab_arch:
     st.markdown("#### Suggest high-level architecture")
     st.caption("Generates architecture style, components, data flow, technology stack, deployment view, and HITL points.")
 
-    default_requirements = safe_json(st.session_state.get("result_requirements", {}))
     arch_requirements = st.text_area(
         "Requirements/context for architecture suggestion",
-        value=default_requirements if default_requirements != "{}" else project_description,
+        value=get_requirements_or_project_text(project_description),
         height=180,
         key="arch_input",
     )
@@ -671,11 +673,13 @@ with tab_code:
     st.markdown("#### Analyze code quality and basic security")
     st.caption("Reviews a code snippet for visible bugs, readability, maintainability, reliability, and defensive security issues.")
 
+    if "code_text" not in st.session_state:
+        st.session_state["code_text"] = EXAMPLE_CODE
+
     code_text = st.text_area(
         "Code snippet to analyze",
-        value=st.session_state.get("code_text", EXAMPLE_CODE),
-        height=220,
         key="code_text",
+        height=220,
     )
 
     if st.button("Analyze code", key="btn_code", type="primary"):
@@ -695,10 +699,9 @@ with tab_attack:
     st.markdown("#### Generate defensive attack and unsafe scenarios")
     st.caption("Produces defensive risk scenarios, unsafe cases, mitigations, and validation tests.")
 
-    default_requirements = safe_json(st.session_state.get("result_requirements", {}))
     attack_context = st.text_area(
         "Requirements/context for defensive risk analysis",
-        value=default_requirements if default_requirements != "{}" else project_description,
+        value=get_requirements_or_project_text(project_description),
         height=190,
         key="attack_input",
     )
