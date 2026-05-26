@@ -29,9 +29,9 @@ from app.llm_client import LLMClient
 
 st.set_page_config(
     page_title="LLM SE Assistant",
-    page_icon="🤖",
+    page_icon="🧠",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown(
@@ -43,7 +43,8 @@ st.markdown(
     max-width: 1280px;
 }
 section[data-testid="stSidebar"] {
-    background: #f1f5f9;
+    background: #0b1220;
+    border-right: 1px solid #1f2937;
 }
 .hero-card {
     background: linear-gradient(135deg, #111827 0%, #1f2937 62%, #374151 100%);
@@ -66,16 +67,16 @@ section[data-testid="stSidebar"] {
     max-width: 920px;
 }
 .card {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
+    background: #121826;
+    border: 1px solid #283447;
     border-radius: 18px;
     padding: 18px 20px;
     margin-bottom: 16px;
-    box-shadow: 0 5px 18px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.22);
 }
 .compact-card {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
+    background: #0e1523;
+    border: 1px solid #283447;
     border-radius: 14px;
     padding: 14px 16px;
     margin-bottom: 12px;
@@ -83,11 +84,11 @@ section[data-testid="stSidebar"] {
 .section-title {
     font-size: 1.08rem;
     font-weight: 750;
-    color: #111827;
+    color: #f8fafc;
     margin-bottom: 10px;
 }
 .muted {
-    color: #6b7280;
+    color: #94a3b8;
     font-size: 0.92rem;
 }
 .badge {
@@ -111,11 +112,12 @@ section[data-testid="stSidebar"] {
 .issue-medium { border-left: 5px solid #f59e0b; }
 .issue-low { border-left: 5px solid #2563eb; }
 .workflow-step {
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    min-height: 96px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid #283447;
+    background: #121826;
+    min-height: 106px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
 }
 .workflow-number {
     width: 28px;
@@ -136,6 +138,38 @@ section[data-testid="stSidebar"] {
     color: #6b7280;
     font-size: 0.85rem;
 }
+
+.info-box {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin: 12px 0 16px 0;
+    color: #cbd5e1;
+}
+.good-box {
+    background: #052e1a;
+    border: 1px solid #166534;
+    color: #bbf7d0;
+    border-radius: 12px;
+    padding: 10px 14px;
+    display: inline-block;
+}
+.warn-box {
+    background: #422006;
+    border: 1px solid #92400e;
+    color: #fde68a;
+    border-radius: 12px;
+    padding: 10px 14px;
+    display: inline-block;
+}
+.stTextArea textarea {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border: 1px solid #334155 !important;
+    border-radius: 14px !important;
+}
+p, li, label { color: #e5e7eb; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -143,9 +177,13 @@ section[data-testid="stSidebar"] {
 
 
 EXAMPLE_PROJECT = (
-    "Build a web application that helps students plan study schedules. "
-    "Users can enter courses, deadlines, available study hours, and preferred study times. "
-    "The system suggests a weekly study plan and lets the student revise it."
+    "Build a clinic appointment booking system for patients, doctors, and clinic administrators. "
+    "Patients can create an account, search doctors by specialty, book appointments, cancel or reschedule appointments, "
+    "receive email reminders, and view their appointment history. Doctors can define weekly availability slots, "
+    "approve or reject appointment requests, and view their upcoming schedule. Clinic administrators can manage doctor profiles, "
+    "specialties, and appointment policies. The system stores patient personal data, doctor availability, appointment records, "
+    "reminder preferences, and audit logs. The system must enforce role-based access control, prevent unauthorized access to records, "
+    "encrypt sensitive data, and keep an audit trail of booking changes."
 )
 
 EXAMPLE_CODE = """def login(username, password):
@@ -167,10 +205,42 @@ def is_short_or_generic(text: str) -> bool:
     generic = {"hi", "hello", "test", "ok", "yes", "no", "ciao", "salam", "سلام"}
     words = [w for w in cleaned.replace("\n", " ").split(" ") if w.strip()]
     return cleaned in generic or len(words) < 8
+def input_quality_label(text: str) -> tuple[str, str]:
+    """Return a professional input-quality label for the project brief."""
+    words = len((text or "").split())
 
+    if words < 8:
+        return "Needs more detail", "warn"
+
+    if words < 35:
+        return "Usable project brief", "good"
+
+    return "Detailed project brief", "good"
 
 def get_client() -> LLMClient:
     return LLMClient()
+
+
+def general_ai_response(user_message: str) -> dict[str, Any]:
+    """General-purpose assistant for non-workflow questions."""
+    system_prompt = """
+You are a helpful AI assistant inside a Software Engineering Assistant app.
+Answer clearly and directly.
+If the user asks about software engineering, provide practical engineering guidance.
+If the user asks something general, answer normally.
+Do not return JSON. Return readable plain text.
+"""
+    client = LLMClient()
+    response = client.chat(system_prompt, user_message)
+    return {
+        "answer": response.text,
+        "metadata": {
+            "provider": response.provider,
+            "model": response.model,
+            "task": "general_ai_chat",
+            "used_local_context": False,
+        },
+    }
 
 
 def show_metadata(data: dict[str, Any]) -> None:
@@ -438,7 +508,7 @@ def render_attack_scenarios(data: dict[str, Any]) -> None:
 
 
 def render_raw_toggle(data: dict[str, Any], key: str) -> None:
-    with st.expander("Raw JSON output"):
+    with st.expander("Advanced: raw JSON output"):
         text = safe_json(data)
         st.code(text, language="json")
         st.download_button(
@@ -473,33 +543,33 @@ model = client.model
 base_url = client.base_url or "default OpenAI endpoint"
 
 with st.sidebar:
-    st.markdown("## Runtime")
-    st.markdown(f'<span class="badge badge-green">Provider: {provider}</span>', unsafe_allow_html=True)
-    st.markdown(f'<span class="badge">Model: {model}</span>', unsafe_allow_html=True)
-    st.caption(f"Endpoint: {base_url}")
+    advanced_mode = st.toggle("Advanced mode", value=False)
+
+    if advanced_mode:
+        st.markdown("## Runtime")
+        st.markdown(f'<span class="badge badge-green">Provider: {provider}</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="badge">Model: {model}</span>', unsafe_allow_html=True)
+        st.caption(f"Endpoint: {base_url}")
+        st.metric("Local corpus documents", "6")
+        st.divider()
 
     use_context = st.checkbox("Use local dataset context", value=False)
-    st.metric("Local corpus documents", "6")
 
-    st.divider()
-    st.markdown("## Workflow")
-    st.caption("1. Describe the project")
-    st.caption("2. Generate requirements")
-    st.caption("3. Review quality issues")
-    st.caption("4. Generate test cases")
-    st.caption("5. Suggest architecture")
-    st.caption("6. Analyze code or unsafe scenarios")
-
-    st.divider()
-    if st.button("Load example project", use_container_width=True):
+    st.markdown("## Actions")
+    if st.button("Load strong clinic example", use_container_width=True):
         st.session_state["project_description"] = EXAMPLE_PROJECT
         for key in ["review_input", "test_input", "arch_input", "attack_input"]:
             st.session_state.pop(key, None)
 
-    if st.button("Clear current output", use_container_width=True):
+    if st.button("Clear generated outputs", use_container_width=True):
         for key in list(st.session_state.keys()):
             if key.startswith("result_") or key in {"review_input", "test_input", "arch_input", "attack_input"}:
                 del st.session_state[key]
+
+    if advanced_mode:
+        st.divider()
+        st.markdown("## Workflow")
+        st.caption("Describe → Requirements → Review → Tests → Architecture → Code/Security")
 
 
 st.markdown(
@@ -507,13 +577,13 @@ st.markdown(
 <div class="hero-card">
     <div class="hero-title">LLM-Powered Virtual Assistant for Software Engineering</div>
     <div class="hero-subtitle">
-        A structured assistant for requirements generation, requirements review, test-case generation,
-        architecture suggestion, code analysis, and defensive attack/unsafe-scenario generation.
+        Generate requirements, review quality, create test cases, suggest architecture,
+        analyze code, and identify defensive security risks using a structured AI workflow.
     </div>
     <br>
     <span class="badge badge-green">Provider: {provider}</span>
     <span class="badge">Model: {model}</span>
-    <span class="badge badge-gray">OpenAI-compatible interface</span>
+    <span class="badge badge-gray">Human-in-the-loop SE workflow</span>
 </div>
 """,
     unsafe_allow_html=True,
@@ -542,7 +612,7 @@ for col, (num, title, desc) in zip(cols, workflow_items):
             unsafe_allow_html=True,
         )
 
-st.markdown("### Project Input")
+st.markdown("### Project Brief")
 
 if "project_description" not in st.session_state:
     st.session_state["project_description"] = EXAMPLE_PROJECT
@@ -554,18 +624,16 @@ project_description = st.text_area(
     placeholder=EXAMPLE_PROJECT,
 )
 
-input_col1, input_col2, _ = st.columns([1, 1, 3])
-with input_col1:
-    st.caption(f"Word count: {len(project_description.split())}")
-with input_col2:
-    if is_short_or_generic(project_description):
-        st.warning("Input is too short.")
-    else:
-        st.success("Input is sufficient.")
+quality, quality_type = input_quality_label(project_description)
+if quality_type == "warn":
+    st.markdown(f'<div class="warn-box">{quality} — add goal, users, features, data, and constraints.</div>', unsafe_allow_html=True)
+else:
+    st.markdown(f'<div class="good-box">{quality}</div>', unsafe_allow_html=True)
 
 
-tab_req, tab_review, tab_tests, tab_arch, tab_code, tab_attack = st.tabs(
+tab_chat, tab_req, tab_review, tab_tests, tab_arch, tab_code, tab_attack = st.tabs(
     [
+        "General AI Chat",
         "Requirements",
         "Review",
         "Test Cases",
@@ -575,6 +643,136 @@ tab_req, tab_review, tab_tests, tab_arch, tab_code, tab_attack = st.tabs(
     ]
 )
 
+with tab_chat:
+    st.markdown("#### General AI Chat")
+    st.caption("Ask general questions, request explanations, translations, presentation help, or software-engineering guidance.")
+
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = [
+            {
+                "role": "assistant",
+                "content": "Hi. I can help with software engineering, project reports, translations, explanations, and presentation preparation.",
+            }
+        ]
+
+    chat_top_col, chat_clear_col = st.columns([5, 1])
+    with chat_clear_col:
+        if st.button("Clear chat", use_container_width=True):
+            st.session_state["chat_messages"] = [
+                {
+                    "role": "assistant",
+                    "content": "Chat cleared. How can I help?",
+                }
+            ]
+            st.rerun()
+
+    st.markdown(
+        """
+<style>
+.chat-wrap {
+    background: #0f172a;
+    border: 1px solid #283447;
+    border-radius: 18px;
+    padding: 18px;
+    margin-bottom: 16px;
+    min-height: 360px;
+    max-height: 520px;
+    overflow-y: auto;
+}
+.msg-row {
+    display: flex;
+    margin-bottom: 14px;
+}
+.msg-user {
+    justify-content: flex-end;
+}
+.msg-assistant {
+    justify-content: flex-start;
+}
+.msg-bubble {
+    max-width: 78%;
+    padding: 12px 15px;
+    border-radius: 16px;
+    line-height: 1.55;
+    font-size: 0.96rem;
+    white-space: pre-wrap;
+}
+.user-bubble {
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+.assistant-bubble {
+    background: #111827;
+    color: #e5e7eb;
+    border: 1px solid #334155;
+    border-bottom-left-radius: 4px;
+}
+.msg-label {
+    font-size: 0.76rem;
+    color: #94a3b8;
+    margin-bottom: 4px;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+    chat_html = ['<div class="chat-wrap">']
+    for message in st.session_state["chat_messages"]:
+        role = message.get("role", "assistant")
+        content = escape_text(message.get("content", ""))
+
+        if role == "user":
+            chat_html.append(
+                f"""
+<div class="msg-row msg-user">
+    <div>
+        <div class="msg-label" style="text-align:right;">You</div>
+        <div class="msg-bubble user-bubble">{content}</div>
+    </div>
+</div>
+"""
+            )
+        else:
+            chat_html.append(
+                f"""
+<div class="msg-row msg-assistant">
+    <div>
+        <div class="msg-label">Assistant</div>
+        <div class="msg-bubble assistant-bubble">{content}</div>
+    </div>
+</div>
+"""
+            )
+
+    chat_html.append("</div>")
+    st.markdown("\n".join(chat_html), unsafe_allow_html=True)
+
+    user_prompt = st.chat_input("Write a message...")
+
+    if user_prompt:
+        st.session_state["chat_messages"].append(
+            {"role": "user", "content": user_prompt}
+        )
+
+        with st.spinner("Assistant is thinking..."):
+            result = call_backend(general_ai_response, user_prompt)
+
+        if result:
+            answer = result.get("answer", "")
+            st.session_state["chat_messages"].append(
+                {"role": "assistant", "content": answer}
+            )
+        else:
+            st.session_state["chat_messages"].append(
+                {
+                    "role": "assistant",
+                    "content": "I could not generate a response. Please check the provider/model configuration.",
+                }
+            )
+
+        st.rerun()
 with tab_req:
     st.markdown("#### Generate structured software requirements")
     st.caption("Converts a project description into assumptions, clarification questions, FRs, NFRs, and risks.")
@@ -600,8 +798,8 @@ with tab_req:
     result = st.session_state.get("result_requirements")
     if result:
         if result.get("status") == "insufficient_input":
-            st.warning(result.get("message"))
-            render_list("Required input details", result.get("required_input", []), "•")
+            show_guidance_for_short_input()
+            render_list("Required details", result.get("required_input", []), "•")
         else:
             render_requirements(result)
         render_raw_toggle(result, "requirements_output")
@@ -618,9 +816,12 @@ with tab_review:
     )
 
     if st.button("Review requirements", key="btn_review", type="primary"):
-        result = call_backend(review_requirements, requirements_text, use_context=use_context)
-        if result:
-            st.session_state["result_review"] = result
+        if is_short_or_generic(requirements_text):
+            st.warning("Please generate requirements first or paste a meaningful requirements document.")
+        else:
+            result = call_backend(review_requirements, requirements_text, use_context=use_context)
+            if result:
+                st.session_state["result_review"] = result
 
     result = st.session_state.get("result_review")
     if result:
@@ -639,9 +840,12 @@ with tab_tests:
     )
 
     if st.button("Generate test cases", key="btn_tests", type="primary"):
-        result = call_backend(generate_test_cases, test_input, use_context=use_context)
-        if result:
-            st.session_state["result_tests"] = result
+        if is_short_or_generic(test_input):
+            st.warning("Please generate requirements first or paste meaningful requirements.")
+        else:
+            result = call_backend(generate_test_cases, test_input, use_context=use_context)
+            if result:
+                st.session_state["result_tests"] = result
 
     result = st.session_state.get("result_tests")
     if result:
@@ -660,9 +864,12 @@ with tab_arch:
     )
 
     if st.button("Suggest architecture", key="btn_arch", type="primary"):
-        result = call_backend(suggest_architecture, project_description, arch_requirements, use_context=use_context)
-        if result:
-            st.session_state["result_architecture"] = result
+        if is_short_or_generic(arch_requirements):
+            st.warning("Please provide a meaningful project brief or generated requirements.")
+        else:
+            result = call_backend(suggest_architecture, project_description, arch_requirements, use_context=use_context)
+            if result:
+                st.session_state["result_architecture"] = result
 
     result = st.session_state.get("result_architecture")
     if result:
@@ -707,8 +914,8 @@ with tab_attack:
     )
 
     if st.button("Generate defensive scenarios", key="btn_attack", type="primary"):
-        if is_short_or_generic(project_description):
-            st.warning("Please provide a meaningful project description first.")
+        if is_short_or_generic(attack_context):
+            st.warning("Please provide a meaningful project brief or generated requirements.")
         else:
             result = call_backend(
                 generate_attack_scenarios,
