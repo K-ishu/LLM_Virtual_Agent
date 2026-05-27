@@ -949,41 +949,33 @@ with main:
         label_visibility="collapsed",
     )
 
-    ui("""
-    <nav class="tabs">
-      <div class="tab active">General AI Chat</div>
-      <div class="tab">Requirements</div>
-      <div class="tab">Review</div>
-      <div class="tab">Test Cases</div>
-      <div class="tab">Architecture</div>
-      <div class="tab">Code Analysis</div>
-      <div class="tab">Security / Unsafe Scenarios</div>
-    </nav>
-    """)
 
-    st.markdown("### Workflow Actions")
 
-    workflow_task = st.selectbox(
-        "Choose a module to run",
+
+    st.markdown("### AI Workflow")
+
+    action = st.radio(
+        "Choose action",
         [
-            "General AI Chat",
-            "Generate Requirements",
-            "Review Requirements",
-            "Generate Test Cases",
-            "Suggest Architecture",
-            "Analyze Code",
-            "Security / Unsafe Scenarios",
+            "General Chat",
+            "Requirements",
+            "Review",
+            "Test Cases",
+            "Architecture",
+            "Code Analysis",
+            "Security",
         ],
+        horizontal=True,
         label_visibility="collapsed",
     )
 
-    if st.button("Run selected module", use_container_width=True):
+    if st.button("Run AI workflow", use_container_width=True):
         brief = st.session_state.get("project_brief", "").strip()
 
-        if not brief and workflow_task != "General AI Chat":
-            st.warning("Please write a project brief first.")
+        if action != "General Chat" and not brief:
+            st.warning("Write a project brief first.")
         else:
-            if workflow_task == "Generate Requirements":
+            if action == "Requirements":
                 prompt = f"""Generate professional software requirements for this project brief:
 
 {brief}
@@ -995,19 +987,26 @@ Return:
 - Non-functional requirements
 - Risks"""
 
-            elif workflow_task == "Review Requirements":
-                prompt = f"""Review the following project requirements or project brief for ambiguity, missing acceptance criteria, security/privacy gaps, contradictions, and unverifiable statements:
+            elif action == "Review":
+                prompt = f"""Review this project brief or requirements:
 
 {brief}
 
+Find:
+- Ambiguity
+- Missing acceptance criteria
+- Security/privacy gaps
+- Contradictions
+- Unverifiable statements
+
 Return:
 - Review summary
-- Detected issues
+- Issues
 - Recommendations
 - Improved requirements"""
 
-            elif workflow_task == "Generate Test Cases":
-                prompt = f"""Generate professional test cases for this software project:
+            elif action == "Test Cases":
+                prompt = f"""Generate professional test cases for this project:
 
 {brief}
 
@@ -1019,23 +1018,21 @@ Return:
 - Expected result
 - Requirement covered"""
 
-            elif workflow_task == "Suggest Architecture":
+            elif action == "Architecture":
                 prompt = f"""Suggest a high-level software architecture for this project:
 
 {brief}
 
 Return:
 - Architecture style
-- Main components
+- Components
 - Data flow
 - Technology stack
 - Deployment view
 - Security considerations"""
 
-            elif workflow_task == "Analyze Code":
-                prompt = """Paste code in the Project Brief box first, then ask for code analysis. Analyze code quality, bugs, security risks, maintainability, and improvements."""
-                if brief:
-                    prompt = f"""Analyze this code or technical description:
+            elif action == "Code Analysis":
+                prompt = f"""Analyze this code or technical description:
 
 {brief}
 
@@ -1046,7 +1043,7 @@ Return:
 - Security findings
 - Recommended improvements"""
 
-            elif workflow_task == "Security / Unsafe Scenarios":
+            elif action == "Security":
                 prompt = f"""Generate defensive security and unsafe scenario analysis for this project:
 
 {brief}
@@ -1059,7 +1056,7 @@ Return:
 - Validation tests"""
 
             else:
-                prompt = "How can I help with this software engineering project?"
+                prompt = brief or "How can I improve this software engineering project?"
 
             submit_prompt(prompt)
             st.rerun()
