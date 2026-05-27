@@ -140,6 +140,117 @@ def submit_prompt(prompt: str) -> None:
     })
 
 
+
+def normalize_result_text(text: str) -> str:
+    """Convert JSON-ish or markdown-ish output into readable text."""
+    text = clean_ai_text(text)
+
+    # Remove code fences if model returns them.
+    text = text.replace("```json", "").replace("```", "").strip()
+
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            parts = []
+            for key, value in data.items():
+                title = str(key).replace("_", " ").title()
+                if isinstance(value, list):
+                    body = "\n".join(f"? {clean_ai_text(item)}" for item in value)
+                elif isinstance(value, dict):
+                    body = "\n".join(f"? {str(k).replace('_', ' ').title()}: {clean_ai_text(v)}" for k, v in value.items())
+                else:
+                    body = clean_ai_text(value)
+                parts.append(f"## {title}\n{body}")
+            return "\n\n".join(parts)
+    except Exception:
+        pass
+
+    return text
+
+
+def split_result_sections(text: str) -> list[tuple[str, str]]:
+    """Split model output into presentation-friendly cards."""
+    text = normalize_result_text(text)
+
+    known_titles = [
+        "Assumptions",
+        "Clarification Questions",
+        "Functional Requirements",
+        "Non-Functional Requirements",
+        "Risks",
+        "Review Summary",
+        "Detected Issues",
+        "Recommendations",
+        "Improved Requirements",
+        "Test Cases",
+        "Architecture Style",
+        "Main Components",
+        "Components",
+        "Data Flow",
+        "Technology Stack",
+        "Deployment View",
+        "Security Considerations",
+        "Security Risks",
+        "Privacy Risks",
+        "Mitigations",
+        "Validation Tests",
+        "Summary",
+        "Quality Findings",
+        "Security Findings",
+        "Recommended Improvements",
+    ]
+
+    # Normalize common markdown headings.
+    normalized = text
+    for title in known_titles:
+        normalized = re.sub(
+            rf"(?im)^\s*(?:#+\s*)?{re.escape(title)}\s*:?\s*$",
+            f"## {title}",
+            normalized,
+        )
+
+    matches = list(re.finditer(r"(?m)^##\s+(.+?)\s*$", normalized))
+    sections = []
+
+    if matches:
+        for idx, match in enumerate(matches):
+            title = match.group(1).strip()
+            start = match.end()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(normalized)
+            body = normalized[start:end].strip()
+            if body:
+                sections.append((title, body))
+        return sections
+
+    # Fallback: one clean card.
+    return [("AI Output", normalized.strip())]
+
+
+def render_workflow_cards(title: str, result: str) -> None:
+    sections = split_result_sections(result)
+
+    cards = []
+    for section_title, section_body in sections:
+        safe_title = html.escape(section_title)
+        safe_body = html.escape(section_body)
+        cards.append(f"""
+        <div class="result-card">
+          <div class="result-card-title">{safe_title}</div>
+          <div class="result-card-body">{safe_body}</div>
+        </div>
+        """)
+
+    ui(f"""
+    <section class="workflow-result">
+      <div class="workflow-result-title">Workflow Result ? {html.escape(title)}</div>
+      <div class="result-note">Structured presentation view. Each requirement category is separated for clarity.</div>
+      <div class="result-grid">
+        {''.join(cards)}
+      </div>
+    </section>
+    """)
+
+
 def login_user(email: str, password: str) -> None:
     email = (email or "").strip()
     if not email:
@@ -795,7 +906,45 @@ input:focus {
   color: #eaf1ff;
   font-size: 14px;
   line-height: 1.75;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.result-card {
+  border: 1px solid rgba(120,140,200,.18);
+  background: linear-gradient(180deg, rgba(14,24,46,.96), rgba(9,16,31,.98));
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+
+.result-card-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: #ffffff;
+  margin-bottom: 10px;
+}
+
+.result-card-body {
+  color: #dfe8ff;
+  font-size: 14px;
+  line-height: 1.75;
   white-space: pre-wrap;
+}
+
+.result-card-body ul {
+  margin-top: 6px;
+  padding-left: 20px;
+}
+
+.result-note {
+  color: #91a2c0;
+  font-size: 13px;
+  margin-top: 6px;
 }
 
 .workflow-empty {
@@ -1008,12 +1157,14 @@ with main:
 
 {brief}
 
-Return:
-- Assumptions
-- Clarification questions
-- Functional requirements
-- Non-functional requirements
-- Risks"""
+Return the answer in clear presentation format with these exact headings:
+## Assumptions
+## Clarification Questions
+## Functional Requirements
+## Non-Functional Requirements
+## Risks
+
+Do not return raw JSON. Use concise professional bullet points."""
 
             elif action == "Review":
                 prompt = f"""Review this project brief or requirements:
@@ -1096,12 +1247,10 @@ Return:
 
 
     if st.session_state.get("workflow_result"):
-        ui(f"""
-        <section class="workflow-result">
-          <div class="workflow-result-title">Workflow Result ? {html.escape(st.session_state.get("workflow_title", "AI Output"))}</div>
-          <div class="workflow-result-body">{html.escape(st.session_state.workflow_result)}</div>
-        </section>
-        """)
+        render_workflow_cards(
+            st.session_state.get("workflow_title", "AI Output"),
+            st.session_state.workflow_result,
+        )
     else:
         ui("""
         <section class="workflow-result">
