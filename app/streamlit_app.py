@@ -4,7 +4,7 @@ Drop-in replacement for: app/streamlit_app.py
 """
 
 from __future__ import annotations
-
+import html
 import json
 import sys
 from pathlib import Path
@@ -229,42 +229,45 @@ def general_ai_response(user_message: str) -> dict[str, Any]:
     system_prompt = """
 You are a helpful general AI assistant inside a software engineering assistant application.
 
-Your job:
-- Answer normal questions directly.
-- Explain technical topics clearly.
-- Help with software engineering, reports, presentations, translation, and project ideas.
-- If the user asks "what is X?", explain X clearly.
-- If the user asks for advice, give practical steps.
+Answer in normal readable text.
 
 Rules:
-- Do NOT return JSON.
-- Do NOT return arrays like [1] or [].
-- Do NOT answer with only symbols.
-- Use normal readable text.
-- Keep the answer concise unless the user asks for details.
+- Do not return JSON.
+- Do not return Python lists.
+- Do not return only symbols.
+- If the user asks "what is X?", explain X clearly.
+- If the user asks for advice, give practical steps.
+- Keep answers concise unless the user asks for details.
 """
 
     client = LLMClient()
     response = client.chat(system_prompt, user_message)
     answer = str(response.text or "").strip()
 
-    invalid_answers = {"", "[]", "[1]", "{}", "null", "None"}
-
-    if answer in invalid_answers or len(answer) < 3:
-        answer = (
-            "I could not generate a useful answer from the current model. "
-            "Please check that the app is using a real provider, not the mock provider."
-        )
-
-    # If model accidentally returns JSON with a message field, unwrap it.
+    # Unwrap accidental JSON responses from the model.
     try:
         parsed = json.loads(answer)
         if isinstance(parsed, dict):
-            answer = parsed.get("answer") or parsed.get("message") or answer
+            answer = (
+                parsed.get("answer")
+                or parsed.get("message")
+                or parsed.get("text")
+                or json.dumps(parsed, ensure_ascii=False)
+            )
         elif isinstance(parsed, list):
-            answer = "The model returned an invalid list response. Please try again with a clearer question."
+            if len(parsed) == 1 and isinstance(parsed[0], str):
+                answer = parsed[0]
+            else:
+                answer = "The model returned a list instead of a normal answer. Please try again."
     except Exception:
         pass
+
+    invalid_answers = {"", "[]", "[1]", "{}", "null", "None"}
+    if answer.strip() in invalid_answers or len(answer.strip()) < 3:
+        answer = (
+            "The model did not return a useful answer. Check the provider, API key, "
+            "model name, and Hugging Face Inference Provider permission."
+        )
 
     return {
         "answer": answer,
@@ -558,10 +561,18 @@ def call_backend(func, *args, **kwargs) -> dict[str, Any] | None:
         with st.spinner("Generating structured software-engineering output..."):
             return func(*args, **kwargs)
     except Exception as exc:
-        st.error("The request failed. Check model/provider configuration or input format.")
-        st.exception(exc)
+        st.markdown(
+            """
+<div class="card" style="border-left: 5px solid #dc2626;">
+    <div class="section-title">Request failed</div>
+    <p>The model returned an invalid or incomplete response. Please try again or switch to a more reliable model.</p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+        if st.session_state.get("advanced_mode", False):
+            st.exception(exc)
         return None
-
 
 def get_requirements_or_project_text(project_text: str) -> str:
     requirements = st.session_state.get("result_requirements")
@@ -569,7 +580,42 @@ def get_requirements_or_project_text(project_text: str) -> str:
         return safe_json(requirements)
     return project_text
 
+def input_quality_label(text: str) -> tuple[str, str]:
+    words = len((text or "").split())
+    if is_short_or_generic(text):
+        return "Brief needs more detail", "warn"
+    if words < 25:
+        return "Usable project brief", "good"
+    return "Detailed project brief", "good"
 
+
+def show_guidance_for_short_input() -> None:
+    st.markdown(
+        """
+<div class="info-box">
+    Add these details for better results: system goal, users, main workflows,
+    stored data, privacy/security constraints, and important business rules.
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def render_auto_context_notice(section_name: str, source_text: str) -> None:
+    source_label = "generated requirements" if st.session_state.get("result_requirements") else "project brief"
+    preview = " ".join((source_text or "").split())
+    preview = html.escape(preview[:220] + ("..." if len(preview) > 220 else ""))
+
+    st.markdown(
+        f"""
+<div class="info-box">
+    <strong>{section_name}</strong><br>
+    This step uses the <strong>{source_label}</strong> automatically.
+    <div class="muted" style="margin-top:8px;">Preview: {preview}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 client = get_client()
 provider = client.provider
 model = client.model
@@ -841,49 +887,43 @@ with tab_review:
     st.markdown("#### Review requirements quality")
     st.caption("Detects ambiguity, missing acceptance criteria, privacy/security gaps, and unverifiable statements.")
 
-    requirements_text = st.text_area(
-        "Requirements to review",
-        value=get_requirements_or_project_text(project_description),
-        height=180,
-        key="review_input",
-    )
+    review_context = get_requirements_or_project_text(project_description)
+    render_auto_context_notice("Review source", review_context)
 
     if st.button("Review requirements", key="btn_review", type="primary"):
-        if is_short_or_generic(requirements_text):
-            st.warning("Please generate requirements first or paste a meaningful requirements document.")
+        if is_short_or_generic(review_context):
+            st.warning("Please generate requirements first or provide a richer project brief.")
         else:
-            result = call_backend(review_requirements, requirements_text, use_context=use_context)
+            result = call_backend(review_requirements, review_context, use_context=use_context)
             if result:
                 st.session_state["result_review"] = result
 
     result = st.session_state.get("result_review")
     if result:
         render_review(result)
-        render_raw_toggle(result, "review_output")
+        if st.session_state.get("advanced_mode", False):
+            render_raw_toggle(result, "review_output")
 
 with tab_tests:
     st.markdown("#### Generate test cases")
     st.caption("Transforms requirements into test cases with steps, expected results, priority, and coverage notes.")
 
-    test_input = st.text_area(
-        "Requirements for test generation",
-        value=get_requirements_or_project_text(project_description),
-        height=180,
-        key="test_input",
-    )
+    test_context = get_requirements_or_project_text(project_description)
+    render_auto_context_notice("Test generation source", test_context)
 
     if st.button("Generate test cases", key="btn_tests", type="primary"):
-        if is_short_or_generic(test_input):
-            st.warning("Please generate requirements first or paste meaningful requirements.")
+        if is_short_or_generic(test_context):
+            st.warning("Please generate requirements first or provide a richer project brief.")
         else:
-            result = call_backend(generate_test_cases, test_input, use_context=use_context)
+            result = call_backend(generate_test_cases, test_context, use_context=use_context)
             if result:
                 st.session_state["result_tests"] = result
 
     result = st.session_state.get("result_tests")
     if result:
         render_test_cases(result)
-        render_raw_toggle(result, "test_cases_output")
+        if st.session_state.get("advanced_mode", False):
+            render_raw_toggle(result, "test_cases_output")
 
 with tab_arch:
     st.markdown("#### Suggest high-level architecture")
