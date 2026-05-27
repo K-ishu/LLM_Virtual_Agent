@@ -961,6 +961,110 @@ with main:
     </nav>
     """)
 
+    st.markdown("### Workflow Actions")
+
+    workflow_task = st.selectbox(
+        "Choose a module to run",
+        [
+            "General AI Chat",
+            "Generate Requirements",
+            "Review Requirements",
+            "Generate Test Cases",
+            "Suggest Architecture",
+            "Analyze Code",
+            "Security / Unsafe Scenarios",
+        ],
+        label_visibility="collapsed",
+    )
+
+    if st.button("Run selected module", use_container_width=True):
+        brief = st.session_state.get("project_brief", "").strip()
+
+        if not brief and workflow_task != "General AI Chat":
+            st.warning("Please write a project brief first.")
+        else:
+            if workflow_task == "Generate Requirements":
+                prompt = f"""Generate professional software requirements for this project brief:
+
+{brief}
+
+Return:
+- Assumptions
+- Clarification questions
+- Functional requirements
+- Non-functional requirements
+- Risks"""
+
+            elif workflow_task == "Review Requirements":
+                prompt = f"""Review the following project requirements or project brief for ambiguity, missing acceptance criteria, security/privacy gaps, contradictions, and unverifiable statements:
+
+{brief}
+
+Return:
+- Review summary
+- Detected issues
+- Recommendations
+- Improved requirements"""
+
+            elif workflow_task == "Generate Test Cases":
+                prompt = f"""Generate professional test cases for this software project:
+
+{brief}
+
+Return:
+- Test case ID
+- Priority
+- Preconditions
+- Steps
+- Expected result
+- Requirement covered"""
+
+            elif workflow_task == "Suggest Architecture":
+                prompt = f"""Suggest a high-level software architecture for this project:
+
+{brief}
+
+Return:
+- Architecture style
+- Main components
+- Data flow
+- Technology stack
+- Deployment view
+- Security considerations"""
+
+            elif workflow_task == "Analyze Code":
+                prompt = """Paste code in the Project Brief box first, then ask for code analysis. Analyze code quality, bugs, security risks, maintainability, and improvements."""
+                if brief:
+                    prompt = f"""Analyze this code or technical description:
+
+{brief}
+
+Return:
+- Summary
+- Detected language/technology
+- Quality findings
+- Security findings
+- Recommended improvements"""
+
+            elif workflow_task == "Security / Unsafe Scenarios":
+                prompt = f"""Generate defensive security and unsafe scenario analysis for this project:
+
+{brief}
+
+Return:
+- Potential abuse cases
+- Security risks
+- Privacy risks
+- Mitigations
+- Validation tests"""
+
+            else:
+                prompt = "How can I help with this software engineering project?"
+
+            submit_prompt(prompt)
+            st.rerun()
+
+
     chat_col, side_col = st.columns([0.74, 0.26], gap="large")
 
     with chat_col:
