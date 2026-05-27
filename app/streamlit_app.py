@@ -1,1005 +1,1068 @@
-"""Professional Streamlit UI for the LLM-Powered Software Engineering Assistant.
-
-Drop-in replacement for: app/streamlit_app.py
-"""
-
 from __future__ import annotations
+
 import html
 import json
-import sys
-from pathlib import Path
-from typing import Any
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+import os
+from datetime import datetime
+from textwrap import dedent
 
 import streamlit as st
 
-from app.assistant_core import (
-    analyze_code,
-    generate_attack_scenarios,
-    generate_requirements,
-    generate_test_cases,
-    review_requirements,
-    suggest_architecture,
-)
-from app.llm_client import LLMClient
+try:
+    from app.llm_client import LLMClient
+except Exception:
+    LLMClient = None
 
 
+# =========================================================
+# Page config
+# =========================================================
 st.set_page_config(
-    page_title="LLM SE Assistant",
+    page_title="LLM-Powered Virtual Assistant",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
+
+# =========================================================
+# State
+# =========================================================
+def now_time() -> str:
+    return datetime.now().strftime("%I:%M %p").lstrip("0")
+
+
+if "project_brief" not in st.session_state:
+    # Empty on initial load, as requested.
+    st.session_state.project_brief = ""
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "login_open" not in st.session_state:
+    st.session_state.login_open = False
+
+if "user_name" not in st.session_state:
+    st.session_state.user_name = "Alex Morgan"
+
+if "user_email" not in st.session_state:
+    st.session_state.user_email = "alex@example.com"
+
+if "chat_messages" not in st.session_state:
+    # Empty chat on first app load.
+    st.session_state.chat_messages = []
+
+if "chat_history" not in st.session_state:
+    # Saved chat history during the current Streamlit session.
+    st.session_state.chat_history = []
+
+
+# =========================================================
+# Helpers
+# =========================================================
+def ui(markup: str) -> None:
+    """Render HTML as real HTML, not as Markdown/code."""
+    markup = dedent(markup).strip()
+    if hasattr(st, "html"):
+        st.html(markup)
+    else:
+        st.markdown(markup, unsafe_allow_html=True)
+
+
+def clean_ai_text(value) -> str:
+    if value is None:
+        return "No response returned."
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return "Empty response."
+        try:
+            return clean_ai_text(json.loads(text))
+        except Exception:
+            return text
+
+    if isinstance(value, dict):
+        for key in ("answer", "content", "text", "message", "response"):
+            if key in value:
+                return clean_ai_text(value[key])
+        return json.dumps(value, ensure_ascii=False, indent=2)
+
+    if isinstance(value, list):
+        return "\n".join(clean_ai_text(item) for item in value if item)
+
+    return str(value)
+
+
+def ask_ai(prompt: str) -> str:
+    system_prompt = (
+        "You are a professional AI assistant for software engineering. "
+        "Answer clearly, practically, and concisely. "
+        "If the user writes in Persian, answer in Persian. "
+        "Do not return raw JSON unless explicitly requested."
+    )
+
+    if LLMClient is None:
+        return "LLMClient is not available. Check app.llm_client import."
+
+    try:
+        client = LLMClient()
+        response = client.chat(system_prompt, prompt)
+        return clean_ai_text(getattr(response, "text", response))
+    except Exception as exc:
+        return f"AI request failed: {exc}"
+
+
+def submit_prompt(prompt: str) -> None:
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return
+
+    user_msg = {"role": "user", "content": prompt, "time": now_time()}
+    st.session_state.chat_messages.append(user_msg)
+
+    with st.spinner("Thinking..."):
+        answer = ask_ai(prompt)
+
+    assistant_msg = {"role": "assistant", "content": answer, "time": now_time()}
+    st.session_state.chat_messages.append(assistant_msg)
+
+    st.session_state.chat_history.append({
+        "question": prompt,
+        "answer": answer,
+        "time": now_time(),
+    })
+
+
+def login_user(email: str, password: str) -> None:
+    email = (email or "").strip()
+    if not email:
+        st.toast("Please enter an email.", icon="⚠️")
+        return
+
+    st.session_state.logged_in = True
+    st.session_state.user_email = email
+    st.session_state.user_name = email.split("@")[0].replace(".", " ").title()
+    st.session_state.login_open = False
+    st.toast("Logged in successfully.", icon="✅")
+
+
+# =========================================================
+# CSS
+# =========================================================
 st.markdown(
     """
 <style>
+:root {
+  --bg: #050914;
+  --rail: #07111f;
+  --panel: #0b1424;
+  --panel2: #0e192c;
+  --stroke: rgba(117,142,200,.18);
+  --stroke2: rgba(117,142,200,.30);
+  --text: #edf4ff;
+  --muted: #91a2c0;
+  --muted2: #667794;
+  --red: #ff4f5f;
+  --red2: #b23248;
+  --purple: #8c5cff;
+  --blue: #3f8cff;
+  --cyan: #2dd4bf;
+  --green: #22c55e;
+  --amber: #f59e0b;
+}
+
+html, body, [class*="css"], .stApp {
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.stApp {
+  background:
+    radial-gradient(circle at 18% 10%, rgba(27,58,132,0.25), transparent 25%),
+    radial-gradient(circle at 76% 8%, rgba(117,58,255,0.13), transparent 24%),
+    radial-gradient(circle at 52% 85%, rgba(0,120,255,0.08), transparent 32%),
+    linear-gradient(180deg, #060b15 0%, #050913 36%, #05070e 100%);
+  color: var(--text);
+}
+
+header[data-testid="stHeader"] { background: transparent !important; }
+#MainMenu, footer { visibility: hidden; }
+[data-testid="stSidebar"], section[data-testid="stSidebar"] { display: none !important; }
+
 .block-container {
-    padding-top: 1.2rem;
-    padding-bottom: 3rem;
-    max-width: 1280px;
+  max-width: 1700px !important;
+  padding: 14px 18px 34px 18px !important;
 }
-section[data-testid="stSidebar"] {
-    background: #0b1220;
-    border-right: 1px solid #1f2937;
+
+div[data-testid="column"] {
+  min-width: 0;
 }
-.hero-card {
-    background: linear-gradient(135deg, #111827 0%, #1f2937 62%, #374151 100%);
-    color: white;
-    border-radius: 22px;
-    padding: 28px 32px;
-    margin-bottom: 22px;
-    box-shadow: 0 10px 30px rgba(17, 24, 39, 0.18);
+
+/* Native widgets */
+.stTextArea textarea,
+.stTextInput input,
+.stTextInput textarea {
+  background: rgba(8,14,26,.94) !important;
+  color: #edf2ff !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(120,140,200,.22) !important;
+  font-size: 14px !important;
+  padding: 14px 16px !important;
+  box-shadow: none !important;
 }
+
+.stTextArea textarea::placeholder,
+.stTextInput input::placeholder {
+  color: #7f90b2 !important;
+  opacity: 1 !important;
+}
+
+.stButton > button,
+.stFormSubmitButton > button {
+  border-radius: 12px !important;
+  border: 1px solid rgba(120,140,200,.20) !important;
+  background: linear-gradient(180deg, rgba(12,19,36,.96), rgba(8,14,26,.98)) !important;
+  color: #eef4ff !important;
+  font-weight: 800 !important;
+  min-height: 40px !important;
+  box-shadow: none !important;
+}
+
+.stButton > button:hover,
+.stFormSubmitButton > button:hover {
+  border-color: rgba(255,95,110,.55) !important;
+  color: white !important;
+}
+
+textarea:focus,
+input:focus {
+  border-color: rgba(255,95,110,.42) !important;
+  box-shadow: 0 0 0 1px rgba(255,95,110,.15) !important;
+}
+
+/* Sidebar */
+.left-rail {
+  border-right: 1px solid rgba(255,255,255,.08);
+  padding: 18px 16px 20px 4px;
+  min-height: calc(100vh - 40px);
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0 24px 0;
+}
+
+.logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  font-size: 25px;
+  color: #ff6f7d;
+  background: linear-gradient(180deg, rgba(255,95,95,.22), rgba(255,95,95,.05));
+  border: 1px solid rgba(255,120,120,.35);
+  box-shadow: 0 0 28px rgba(255,80,120,.15);
+}
+
+.brand-title {
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.brand-sub {
+  font-size: 12px;
+  color: #b7c3dd;
+  margin-top: 3px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,110,120,.42);
+  background: linear-gradient(90deg, rgba(255,90,90,.14), rgba(255,90,90,.04));
+  font-weight: 800;
+  margin-bottom: 24px;
+}
+
+.section {
+  font-size: 11px;
+  letter-spacing: .11em;
+  color: #7e8aa8;
+  text-transform: uppercase;
+  font-weight: 900;
+  margin: 18px 0 10px;
+}
+
+.module,
+.history,
+.profile,
+.login-card {
+  border: 1px solid rgba(120,140,200,.18);
+  background: linear-gradient(180deg, rgba(11,19,38,.85), rgba(8,15,30,.92));
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  color: #dfe8ff;
+}
+
+.module-title {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: white;
+  font-weight: 850;
+}
+
+.num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 900;
+  background: rgba(95,120,255,.15);
+  color: #c9d3ff;
+  border: 1px solid rgba(120,140,255,.35);
+}
+
+.module-sub,
+.history span,
+.profile-mail {
+  font-size: 11px;
+  color: #8ea0c6;
+}
+
+.search {
+  border: 1px solid rgba(120,140,200,.18);
+  background: rgba(10,17,31,.90);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #8292b7;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.history.active {
+  border-color: rgba(255,95,95,.40);
+  background: linear-gradient(180deg, rgba(120,25,35,.28), rgba(15,18,35,.95));
+}
+
+.history-title {
+  font-size: 13px;
+  color: white;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.profile {
+  margin-top: 18px;
+  border-radius: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #6e85ff, #ff6f8f);
+  color: white;
+  font-weight: 900;
+}
+
+.profile-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* Hero */
+.hero {
+  border-radius: 24px;
+  border: 1px solid rgba(120,140,200,.16);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 42% 58%;
+  min-height: 292px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(40,90,255,.18), transparent 28%),
+    radial-gradient(circle at 70% 30%, rgba(255,60,120,.08), transparent 22%),
+    linear-gradient(180deg, rgba(10,19,38,.96), rgba(8,13,26,.98));
+  box-shadow: 0 10px 50px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.02);
+}
+
+.hero-left {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 292px;
+  border-right: 1px solid rgba(255,255,255,.05);
+  background:
+    radial-gradient(circle at 50% 43%, rgba(255,91,126,.30), transparent 14%),
+    radial-gradient(circle at 50% 43%, rgba(111,92,255,.28), transparent 25%),
+    radial-gradient(circle at center, rgba(80,130,255,.20), transparent 30%),
+    linear-gradient(180deg, rgba(8,16,34,.90), rgba(8,16,34,.98));
+}
+
+.hero-left::after {
+  content: "";
+  position: absolute;
+  bottom: 31px;
+  width: 210px;
+  height: 40px;
+  background: radial-gradient(circle, rgba(141,72,255,.50), rgba(70,60,255,.10), transparent 75%);
+  filter: blur(10px);
+}
+
+.hero-left::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: 34px 34px;
+  opacity: .55;
+}
+
+.brain-glow {
+  position: relative;
+  width: 240px;
+  height: 190px;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+}
+
+.brain-glow::before {
+  content: "";
+  position: absolute;
+  width: 245px;
+  height: 170px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(255,92,132,.20), transparent 62%),
+    radial-gradient(circle, rgba(125,92,255,.26), transparent 70%);
+  filter: blur(12px);
+}
+
+.brain {
+  position: relative;
+  font-size: 116px;
+  z-index: 3;
+  filter:
+    drop-shadow(0 0 20px rgba(255,90,130,.32))
+    drop-shadow(0 0 34px rgba(120,95,255,.22));
+}
+
+.hero-right {
+  position: relative;
+  padding: 34px 38px;
+}
+
+.hero-icons {
+  position: absolute;
+  top: 25px;
+  right: 25px;
+  display: flex;
+  gap: 18px;
+  font-size: 22px;
+}
+
+.new-project {
+  position: absolute;
+  top: 20px;
+  right: 92px;
+  background: linear-gradient(180deg, #ff6f61, #ff5a4f);
+  color: white;
+  padding: 11px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow: 0 10px 28px rgba(255,90,90,.22);
+}
+
 .hero-title {
-    font-size: 2.15rem;
-    font-weight: 850;
-    letter-spacing: -0.03em;
-    margin: 0 0 8px 0;
+  margin-top: 40px;
+  font-size: 35px;
+  line-height: 1.08;
+  font-weight: 950;
 }
-.hero-subtitle {
-    color: #d1d5db;
-    font-size: 1rem;
-    line-height: 1.55;
-    max-width: 920px;
+
+.hero-title .accent {
+  color: #ff5972;
 }
-.card {
-    background: #121826;
-    border: 1px solid #283447;
-    border-radius: 18px;
-    padding: 18px 20px;
-    margin-bottom: 16px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.22);
+
+.hero-desc {
+  margin-top: 12px;
+  max-width: 590px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #b7c4df;
 }
-.compact-card {
-    background: #0e1523;
-    border: 1px solid #283447;
-    border-radius: 14px;
-    padding: 14px 16px;
-    margin-bottom: 12px;
+
+.badges {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.section-title {
-    font-size: 1.08rem;
-    font-weight: 750;
-    color: #f8fafc;
-    margin-bottom: 10px;
-}
-.muted {
-    color: #94a3b8;
-    font-size: 0.92rem;
-}
+
 .badge {
-    display: inline-block;
-    padding: 5px 11px;
-    border-radius: 999px;
-    font-size: 0.78rem;
-    font-weight: 700;
-    background: #eef2ff;
-    color: #3730a3;
-    margin-right: 7px;
-    margin-bottom: 7px;
-}
-.badge-green { background: #dcfce7; color: #166534; }
-.badge-yellow { background: #fef3c7; color: #92400e; }
-.badge-red { background: #fee2e2; color: #991b1b; }
-.badge-gray { background: #f3f4f6; color: #374151; }
-.req-card { border-left: 5px solid #ef4444; }
-.nfr-card { border-left: 5px solid #2563eb; }
-.issue-high { border-left: 5px solid #dc2626; }
-.issue-medium { border-left: 5px solid #f59e0b; }
-.issue-low { border-left: 5px solid #2563eb; }
-.workflow-step {
-    padding: 14px 16px;
-    border-radius: 16px;
-    border: 1px solid #283447;
-    background: #121826;
-    min-height: 106px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-}
-.workflow-number {
-    width: 28px;
-    height: 28px;
-    border-radius: 999px;
-    background: #ef4444;
-    color: white;
-    font-weight: 800;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 8px;
-}
-.footer-meta {
-    border-top: 1px solid #e5e7eb;
-    margin-top: 12px;
-    padding-top: 10px;
-    color: #6b7280;
-    font-size: 0.85rem;
+  border: 1px solid rgba(120,140,200,.22);
+  background: rgba(8,14,28,.72);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 13px;
 }
 
-.info-box {
-    background: #0f172a;
-    border: 1px solid #334155;
-    border-radius: 14px;
-    padding: 14px 16px;
-    margin: 12px 0 16px 0;
-    color: #cbd5e1;
+/* Workflow */
+.workflow {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 14px;
 }
-.good-box {
-    background: #052e1a;
-    border: 1px solid #166534;
-    color: #bbf7d0;
-    border-radius: 12px;
-    padding: 10px 14px;
-    display: inline-block;
+
+.card {
+  border: 1px solid rgba(120,140,200,.18);
+  background: linear-gradient(180deg, rgba(13,20,38,.92), rgba(9,15,28,.98));
+  border-radius: 18px;
+  min-height: 104px;
+  padding: 16px 18px;
 }
-.warn-box {
-    background: #422006;
-    border: 1px solid #92400e;
-    color: #fde68a;
-    border-radius: 12px;
-    padding: 10px 14px;
-    display: inline-block;
+
+.card-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-weight: 900;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255,255,255,.16);
 }
-.stTextArea textarea {
-    background-color: #0f172a !important;
-    color: #f8fafc !important;
-    border: 1px solid #334155 !important;
-    border-radius: 14px !important;
+
+.c1 { background: rgba(255,104,76,.22); color: #ff8d74; }
+.c2 { background: rgba(180,85,255,.22); color: #c58cff; }
+.c3 { background: rgba(158,85,255,.22); color: #bf98ff; }
+.c4 { background: rgba(90,140,255,.22); color: #83adff; }
+.c5 { background: rgba(255,180,70,.22); color: #ffcf7f; }
+.c6 { background: rgba(80,210,200,.22); color: #7de8dc; }
+
+.card-title {
+  font-size: 14px;
+  font-weight: 900;
+  margin-bottom: 5px;
 }
-p, li, label { color: #e5e7eb; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
 
-
-EXAMPLE_PROJECT = (
-    "Build a clinic appointment booking system for patients, doctors, and clinic administrators. "
-    "Patients can create an account, search doctors by specialty, book appointments, cancel or reschedule appointments, "
-    "receive email reminders, and view their appointment history. Doctors can define weekly availability slots, "
-    "approve or reject appointment requests, and view their upcoming schedule. Clinic administrators can manage doctor profiles, "
-    "specialties, and appointment policies. The system stores patient personal data, doctor availability, appointment records, "
-    "reminder preferences, and audit logs. The system must enforce role-based access control, prevent unauthorized access to records, "
-    "encrypt sensitive data, and keep an audit trail of booking changes."
-)
-
-EXAMPLE_CODE = """def login(username, password):
-    if username == "admin" and password == "admin":
-        return True
-    return False
-"""
-
-
-def safe_json(data: Any) -> str:
-    try:
-        return json.dumps(data, indent=2, ensure_ascii=False)
-    except TypeError:
-        return str(data)
-
-def escape_text(value) -> str:
-    """Escape text before rendering it inside custom HTML."""
-    import html
-    return html.escape(str(value or ""))
-def is_short_or_generic(text: str) -> bool:
-    cleaned = (text or "").strip().lower()
-    generic = {"hi", "hello", "test", "ok", "yes", "no", "ciao", "salam", "سلام"}
-    words = [w for w in cleaned.replace("\n", " ").split(" ") if w.strip()]
-    return cleaned in generic or len(words) < 8
-def input_quality_label(text: str) -> tuple[str, str]:
-    """Return a professional input-quality label for the project brief."""
-    words = len((text or "").split())
-
-    if words < 8:
-        return "Needs more detail", "warn"
-
-    if words < 35:
-        return "Usable project brief", "good"
-
-    return "Detailed project brief", "good"
-
-def get_client() -> LLMClient:
-    return LLMClient()
-
-
-def general_ai_response(user_message: str) -> dict[str, Any]:
-    """General-purpose assistant for normal chat, not JSON workflow output."""
-    system_prompt = """
-You are a helpful general AI assistant inside a software engineering assistant application.
-
-Answer in normal readable text.
-
-Rules:
-- Do not return JSON.
-- Do not return Python lists.
-- Do not return only symbols.
-- If the user asks "what is X?", explain X clearly.
-- If the user asks for advice, give practical steps.
-- Keep answers concise unless the user asks for details.
-"""
-
-    client = LLMClient()
-    response = client.chat(system_prompt, user_message)
-    answer = str(response.text or "").strip()
-
-    # Unwrap accidental JSON responses from the model.
-    try:
-        parsed = json.loads(answer)
-        if isinstance(parsed, dict):
-            answer = (
-                parsed.get("answer")
-                or parsed.get("message")
-                or parsed.get("text")
-                or json.dumps(parsed, ensure_ascii=False)
-            )
-        elif isinstance(parsed, list):
-            if len(parsed) == 1 and isinstance(parsed[0], str):
-                answer = parsed[0]
-            else:
-                answer = "The model returned a list instead of a normal answer. Please try again."
-    except Exception:
-        pass
-
-    invalid_answers = {"", "[]", "[1]", "{}", "null", "None"}
-    if answer.strip() in invalid_answers or len(answer.strip()) < 3:
-        answer = (
-            "The model did not return a useful answer. Check the provider, API key, "
-            "model name, and Hugging Face Inference Provider permission."
-        )
-
-    return {
-        "answer": answer,
-        "metadata": {
-            "provider": response.provider,
-            "model": response.model,
-            "task": "general_ai_chat",
-            "used_local_context": False,
-        },
-    }
-
-def show_metadata(data: dict[str, Any]) -> None:
-    metadata = data.get("metadata")
-    if not isinstance(metadata, dict):
-        return
-    st.markdown(
-        f"""
-<div class="footer-meta">
-    <span class="badge badge-gray">Provider: {metadata.get('provider', 'unknown')}</span>
-    <span class="badge badge-gray">Model: {metadata.get('model', 'unknown')}</span>
-    <span class="badge badge-gray">Task: {metadata.get('task', 'unknown')}</span>
-    <span class="badge badge-gray">Local context: {metadata.get('used_local_context', False)}</span>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-
-def render_list(title: str, items: list[Any], icon: str = "•") -> None:
-    if not items:
-        return
-    st.markdown(f'<div class="card"><div class="section-title">{title}</div>', unsafe_allow_html=True)
-    for item in items:
-        st.markdown(f"{icon} {item}")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def render_requirements(data: dict[str, Any]) -> None:
-    render_list("Assumptions", data.get("assumptions", []), "•")
-    render_list("Clarification Questions", data.get("clarification_questions", []), "❓")
-
-    frs = data.get("functional_requirements", [])
-    if frs:
-        st.markdown('<div class="card"><div class="section-title">Functional Requirements</div>', unsafe_allow_html=True)
-        for req in frs:
-            st.markdown(
-                f"""
-<div class="compact-card req-card">
-    <span class="badge badge-red">{req.get('id', 'FR')}</span>
-    <strong>{req.get('requirement', '')}</strong>
-    <div class="muted" style="margin-top:7px;">Rationale: {req.get('rationale', '')}</div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    nfrs = data.get("non_functional_requirements", [])
-    if nfrs:
-        st.markdown('<div class="card"><div class="section-title">Non-Functional Requirements</div>', unsafe_allow_html=True)
-        for req in nfrs:
-            st.markdown(
-                f"""
-<div class="compact-card nfr-card">
-    <span class="badge">{req.get('id', 'NFR')}</span>
-    <span class="badge badge-green">{req.get('quality_attribute', 'quality')}</span>
-    <strong>{req.get('requirement', '')}</strong>
-    <div class="muted" style="margin-top:7px;">Rationale: {req.get('rationale', '')}</div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    render_list("Risks", data.get("risks", []), "⚠️")
-    show_metadata(data)
-
-
-def render_review(data: dict[str, Any]) -> None:
-    if data.get("summary"):
-        st.markdown(
-            f'<div class="card"><div class="section-title">Review Summary</div><p>{data.get("summary")}</p></div>',
-            unsafe_allow_html=True,
-        )
-
-    issues = data.get("issues", [])
-    if issues:
-        st.markdown('<div class="card"><div class="section-title">Detected Issues</div>', unsafe_allow_html=True)
-        for issue in issues:
-            severity = str(issue.get("severity", "medium")).lower()
-            cls = "issue-high" if severity == "high" else "issue-low" if severity == "low" else "issue-medium"
-            st.markdown(
-                f"""
-<div class="compact-card {cls}">
-    <span class="badge badge-yellow">{issue.get('severity', 'medium')}</span>
-    <span class="badge badge-gray">{issue.get('type', 'issue')}</span>
-    <strong>{issue.get('id', 'ISSUE')}</strong>
-    <p><strong>Evidence:</strong> {issue.get('evidence', '')}</p>
-    <p><strong>Recommendation:</strong> {issue.get('recommendation', '')}</p>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    render_list("Improved Requirements", data.get("improved_requirements", []), "✅")
-    render_list("Clarification Questions", data.get("clarification_questions", []), "❓")
-    show_metadata(data)
-
-
-def render_test_cases(data: dict[str, Any]) -> None:
-    test_cases = data.get("test_cases", [])
-    if test_cases:
-        st.markdown('<div class="card"><div class="section-title">Generated Test Cases</div>', unsafe_allow_html=True)
-        for tc in test_cases:
-            related = ", ".join(tc.get("related_requirement_ids", []))
-            preconditions = "; ".join(tc.get("preconditions", []))
-            st.markdown(
-                f"""
-<div class="compact-card">
-    <span class="badge badge-red">{tc.get('id', 'TC')}</span>
-    <span class="badge">{tc.get('priority', 'medium')} priority</span>
-    <span class="badge badge-green">{tc.get('test_type', 'functional')}</span>
-    <h4 style="margin: 8px 0 6px 0;">{tc.get('title', 'Test case')}</h4>
-    <p><strong>Related requirements:</strong> {related}</p>
-    <p><strong>Preconditions:</strong> {preconditions}</p>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-            st.markdown("**Steps**")
-            for step in tc.get("steps", []):
-                st.markdown(f"- {step}")
-            st.markdown(f"**Expected result:** {tc.get('expected_result', '')}")
-            st.markdown("---")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    render_list("Coverage Notes", data.get("coverage_notes", []), "📌")
-    render_list("Missing Information", data.get("missing_information", []), "⚠️")
-    show_metadata(data)
-
-
-def render_architecture(data: dict[str, Any]) -> None:
-    if data.get("architecture_style"):
-        st.markdown(
-            f'<div class="card"><div class="section-title">Architecture Style</div><p>{data.get("architecture_style")}</p></div>',
-            unsafe_allow_html=True,
-        )
-
-    components = data.get("components", [])
-    if components:
-        st.markdown('<div class="card"><div class="section-title">System Components</div>', unsafe_allow_html=True)
-        for comp in components:
-            inputs = ", ".join(comp.get("inputs", []))
-            outputs = ", ".join(comp.get("outputs", []))
-            st.markdown(
-                f"""
-<div class="compact-card">
-    <span class="badge badge-red">{comp.get('name', 'Component')}</span>
-    <p><strong>Responsibility:</strong> {comp.get('responsibility', '')}</p>
-    <p><strong>Inputs:</strong> {inputs}</p>
-    <p><strong>Outputs:</strong> {outputs}</p>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    render_list("Data Flow", data.get("data_flow", []), "➡️")
-    render_list("Technology Stack", data.get("technology_stack", []), "🧩")
-    if data.get("deployment_view"):
-        st.markdown(
-            f'<div class="card"><div class="section-title">Deployment View</div><p>{data.get("deployment_view")}</p></div>',
-            unsafe_allow_html=True,
-        )
-    render_list("Security and Privacy Considerations", data.get("security_privacy_considerations", []), "🔐")
-    render_list("Human-in-the-loop Points", data.get("human_in_the_loop_points", []), "👤")
-    show_metadata(data)
-
-
-def render_code_analysis(data: dict[str, Any]) -> None:
-    if data.get("summary"):
-        st.markdown(
-            f'<div class="card"><div class="section-title">Code Review Summary</div><p>{data.get("summary")}</p></div>',
-            unsafe_allow_html=True,
-        )
-    render_list("Assumptions", data.get("assumptions", []), "•")
-    if data.get("detected_language"):
-        st.markdown(f'<span class="badge badge-gray">Detected language: {data.get("detected_language")}</span>', unsafe_allow_html=True)
-
-    findings = data.get("quality_findings", [])
-    if findings:
-        st.markdown('<div class="card"><div class="section-title">Quality and Security Findings</div>', unsafe_allow_html=True)
-        for finding in findings:
-            severity = str(finding.get("severity", "medium")).lower()
-            cls = "issue-high" if severity == "high" else "issue-low" if severity == "low" else "issue-medium"
-            st.markdown(
-                f"""
-<div class="compact-card {cls}">
-    <span class="badge badge-yellow">{finding.get('severity', 'medium')}</span>
-    <span class="badge badge-gray">{finding.get('category', 'quality')}</span>
-    <strong>{finding.get('id', 'QF')}</strong>
-    <p><strong>Evidence:</strong> {finding.get('evidence', '')}</p>
-    <p><strong>Recommendation:</strong> {finding.get('recommendation', '')}</p>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    render_list("Refactoring Suggestions", data.get("refactoring_suggestions", []), "🛠️")
-    render_list("Safe Test Ideas", data.get("safe_test_ideas", []), "🧪")
-    show_metadata(data)
-
-
-def render_attack_scenarios(data: dict[str, Any]) -> None:
-    render_list("Threat Model Assumptions", data.get("threat_model_assumptions", []), "•")
-
-    attacks = data.get("attack_scenarios", [])
-    if attacks:
-        st.markdown('<div class="card"><div class="section-title">Defensive Attack Scenarios</div>', unsafe_allow_html=True)
-        for attack in attacks:
-            st.markdown(
-                f"""
-<div class="compact-card issue-high">
-    <span class="badge badge-red">{attack.get('id', 'AS')}</span>
-    <span class="badge badge-yellow">Impact: {attack.get('impact', 'medium')}</span>
-    <span class="badge">Likelihood: {attack.get('likelihood', 'medium')}</span>
-    <h4 style="margin: 8px 0 6px 0;">{attack.get('title', '')}</h4>
-    <p><strong>Asset at risk:</strong> {attack.get('asset_at_risk', '')}</p>
-    <p><strong>Threat actor:</strong> {attack.get('threat_actor', '')}</p>
-    <p><strong>Scenario:</strong> {attack.get('scenario', '')}</p>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-            st.markdown("**Mitigations**")
-            for mitigation in attack.get("mitigations", []):
-                st.markdown(f"- {mitigation}")
-            st.markdown("**Validation tests**")
-            for test in attack.get("validation_tests", []):
-                st.markdown(f"- {test}")
-            st.markdown("---")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    unsafe = data.get("unsafe_scenarios", [])
-    if unsafe:
-        st.markdown('<div class="card"><div class="section-title">Unsafe Scenarios</div>', unsafe_allow_html=True)
-        for item in unsafe:
-            affected = ", ".join(item.get("affected_users", []))
-            st.markdown(
-                f"""
-<div class="compact-card issue-medium">
-    <span class="badge badge-yellow">{item.get('id', 'US')}</span>
-    <h4 style="margin: 8px 0 6px 0;">{item.get('title', '')}</h4>
-    <p><strong>Scenario:</strong> {item.get('scenario', '')}</p>
-    <p><strong>Affected users:</strong> {affected}</p>
-    <p><strong>Harm:</strong> {item.get('harm', '')}</p>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-            st.markdown("**Mitigations**")
-            for mitigation in item.get("mitigations", []):
-                st.markdown(f"- {mitigation}")
-            st.markdown("**Validation tests**")
-            for test in item.get("validation_tests", []):
-                st.markdown(f"- {test}")
-            st.markdown("---")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    render_list("Residual Risks", data.get("residual_risks", []), "⚠️")
-    show_metadata(data)
-
-
-def render_raw_toggle(data: dict[str, Any], key: str) -> None:
-    with st.expander("Advanced: raw JSON output"):
-        text = safe_json(data)
-        st.code(text, language="json")
-        st.download_button(
-            label="Download JSON",
-            data=text,
-            file_name=f"{key}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-
-
-def call_backend(func, *args, **kwargs) -> dict[str, Any] | None:
-    try:
-        with st.spinner("Generating structured software-engineering output..."):
-            return func(*args, **kwargs)
-    except Exception as exc:
-        st.markdown(
-            """
-<div class="card" style="border-left: 5px solid #dc2626;">
-    <div class="section-title">Request failed</div>
-    <p>The model returned an invalid or incomplete response. Please try again or switch to a more reliable model.</p>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-        if st.session_state.get("advanced_mode", False):
-            st.exception(exc)
-        return None
-
-def get_requirements_or_project_text(project_text: str) -> str:
-    requirements = st.session_state.get("result_requirements")
-    if isinstance(requirements, dict) and requirements:
-        return safe_json(requirements)
-    return project_text
-
-def input_quality_label(text: str) -> tuple[str, str]:
-    words = len((text or "").split())
-    if is_short_or_generic(text):
-        return "Brief needs more detail", "warn"
-    if words < 25:
-        return "Usable project brief", "good"
-    return "Detailed project brief", "good"
-
-
-def show_guidance_for_short_input() -> None:
-    st.markdown(
-        """
-<div class="info-box">
-    Add these details for better results: system goal, users, main workflows,
-    stored data, privacy/security constraints, and important business rules.
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-
-def render_auto_context_notice(section_name: str, source_text: str) -> None:
-    source_label = "generated requirements" if st.session_state.get("result_requirements") else "project brief"
-    preview = " ".join((source_text or "").split())
-    preview = html.escape(preview[:220] + ("..." if len(preview) > 220 else ""))
-
-    st.markdown(
-        f"""
-<div class="info-box">
-    <strong>{section_name}</strong><br>
-    This step uses the <strong>{source_label}</strong> automatically.
-    <div class="muted" style="margin-top:8px;">Preview: {preview}</div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-client = get_client()
-provider = client.provider
-model = client.model
-base_url = client.base_url or "default OpenAI endpoint"
-
-with st.sidebar:
-    advanced_mode = st.toggle("Advanced mode", value=False)
-
-    if advanced_mode:
-        st.markdown("## Runtime")
-        st.markdown(f'<span class="badge badge-green">Provider: {provider}</span>', unsafe_allow_html=True)
-        st.markdown(f'<span class="badge">Model: {model}</span>', unsafe_allow_html=True)
-        st.caption(f"Endpoint: {base_url}")
-        st.metric("Local corpus documents", "6")
-        st.divider()
-
-    use_context = st.checkbox("Use local dataset context", value=False)
-
-    st.markdown("## Actions")
-    if st.button("Load strong clinic example", use_container_width=True):
-        st.session_state["project_description"] = EXAMPLE_PROJECT
-        for key in ["review_input", "test_input", "arch_input", "attack_input"]:
-            st.session_state.pop(key, None)
-
-    if st.button("Clear generated outputs", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            if key.startswith("result_") or key in {"review_input", "test_input", "arch_input", "attack_input"}:
-                del st.session_state[key]
-
-    if advanced_mode:
-        st.divider()
-        st.markdown("## Workflow")
-        st.caption("Describe → Requirements → Review → Tests → Architecture → Code/Security")
-
-
-st.markdown(
-    f"""
-<div class="hero-card">
-    <div class="hero-title">LLM-Powered Virtual Assistant for Software Engineering</div>
-    <div class="hero-subtitle">
-        Generate requirements, review quality, create test cases, suggest architecture,
-        analyze code, and identify defensive security risks using a structured AI workflow.
-    </div>
-    <br>
-    <span class="badge badge-green">Provider: {provider}</span>
-    <span class="badge">Model: {model}</span>
-    <span class="badge badge-gray">Human-in-the-loop SE workflow</span>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-cols = st.columns(6)
-workflow_items = [
-    ("1", "Requirements", "Generate FR/NFR from project text."),
-    ("2", "Review", "Find ambiguity and missing criteria."),
-    ("3", "Tests", "Create structured verification cases."),
-    ("4", "Architecture", "Suggest components and data flow."),
-    ("5", "Code", "Review code quality and security."),
-    ("6", "Security", "Generate defensive risk scenarios."),
-]
-
-for col, (num, title, desc) in zip(cols, workflow_items):
-    with col:
-        st.markdown(
-            f"""
-<div class="workflow-step">
-    <span class="workflow-number">{num}</span>
-    <strong>{title}</strong>
-    <div class="muted" style="margin-top:8px;">{desc}</div>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-
-st.markdown("### Project Brief")
-
-if "project_description" not in st.session_state:
-    st.session_state["project_description"] = EXAMPLE_PROJECT
-
-project_description = st.text_area(
-    "Describe the software system",
-    key="project_description",
-    height=140,
-    placeholder=EXAMPLE_PROJECT,
-)
-
-quality, quality_type = input_quality_label(project_description)
-if quality_type == "warn":
-    st.markdown(f'<div class="warn-box">{quality} — add goal, users, features, data, and constraints.</div>', unsafe_allow_html=True)
-else:
-    st.markdown(f'<div class="good-box">{quality}</div>', unsafe_allow_html=True)
-
-
-tab_chat, tab_req, tab_review, tab_tests, tab_arch, tab_code, tab_attack = st.tabs(
-    [
-        "General AI Chat",
-        "Requirements",
-        "Review",
-        "Test Cases",
-        "Architecture",
-        "Code Analysis",
-        "Security / Unsafe Scenarios",
-    ]
-)
-
-with tab_chat:
-    st.markdown("#### General AI Chat")
-    st.caption("Ask general questions, request explanations, translations, presentation help, or software-engineering guidance.")
-
-    if "chat_messages" not in st.session_state:
-        st.session_state["chat_messages"] = [
-            {
-                "role": "assistant",
-                "content": "Hi. I can help with software engineering, project reports, translations, explanations, and presentation preparation.",
-            }
-        ]
-
-    chat_top_col, chat_clear_col = st.columns([5, 1])
-    with chat_clear_col:
-        if st.button("Clear chat", use_container_width=True):
-            st.session_state["chat_messages"] = [
-                {
-                    "role": "assistant",
-                    "content": "Chat cleared. How can I help?",
-                }
-            ]
-            st.rerun()
-
-    st.markdown(
-        """
-<style>
-.chat-wrap {
-    background: #0f172a;
-    border: 1px solid #283447;
-    border-radius: 18px;
-    padding: 18px;
-    margin-bottom: 16px;
-    min-height: 360px;
-    max-height: 520px;
-    overflow-y: auto;
+.card-sub {
+  font-size: 12px;
+  color: #93a5cb;
+  line-height: 1.45;
 }
+
+/* Brief */
+.brief-card {
+  margin-top: 18px;
+  border: 1px solid rgba(120,140,200,.16);
+  border-radius: 18px 18px 0 0;
+  background: linear-gradient(180deg, rgba(11,19,38,.88), rgba(8,14,26,.98));
+  padding: 18px 18px 10px;
+}
+
+.brief-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.brief-title {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.brief-sub {
+  font-size: 13px;
+  color: #a3b2d0;
+  margin-top: 2px;
+}
+
+.brief-btn {
+  border: 1px solid rgba(255,110,120,.38);
+  color: #ff8f98;
+  background: rgba(255,75,75,.06);
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+/* Tabs */
+.tabs {
+  margin-top: 14px;
+  display: flex;
+  gap: 26px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  padding-bottom: 10px;
+}
+
+.tab {
+  color: #c8d4ef;
+  font-size: 13px;
+  font-weight: 800;
+  position: relative;
+}
+
+.tab.active {
+  color: white;
+}
+
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -11px;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: #ff586a;
+}
+
+/* Chat */
+.chat-layout {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: 1fr 330px;
+  gap: 18px;
+}
+
+.chat {
+  border: 1px solid rgba(120,140,200,.16);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 70% 60%, rgba(255,85,130,.06), transparent 26%),
+    radial-gradient(circle at 35% 15%, rgba(60,120,255,.10), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.94), rgba(8,14,26,.98));
+  padding: 16px 18px;
+  min-height: 360px;
+}
+
+.chat-title {
+  font-size: 14px;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
+.chat-desc {
+  font-size: 12px;
+  color: #96a8cd;
+  margin-bottom: 18px;
+}
+
+.messages {
+  min-height: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .msg-row {
-    display: flex;
-    margin-bottom: 14px;
+  display: flex;
+  width: 100%;
 }
-.msg-user {
-    justify-content: flex-end;
+
+.msg-row.user {
+  justify-content: flex-end;
 }
-.msg-assistant {
-    justify-content: flex-start;
+
+.bubble {
+  max-width: 64%;
+  padding: 16px 18px;
+  border-radius: 20px;
+  font-size: 14px;
+  line-height: 1.7;
+  box-shadow: 0 10px 25px rgba(0,0,0,.18);
 }
-.msg-bubble {
-    max-width: 78%;
-    padding: 12px 15px;
-    border-radius: 16px;
-    line-height: 1.55;
-    font-size: 0.96rem;
-    white-space: pre-wrap;
+
+.bubble.user {
+  background: linear-gradient(180deg, rgba(172,56,78,.96), rgba(150,45,65,.96));
+  border: 1px solid rgba(255,110,130,.25);
+  color: #fff5f6;
+  border-top-right-radius: 10px;
 }
-.user-bubble {
-    background: linear-gradient(135deg, #ef4444, #f97316);
-    color: white;
-    border-bottom-right-radius: 4px;
+
+.bubble.assistant {
+  background:
+    radial-gradient(circle at 80% 20%, rgba(155,90,255,.10), transparent 30%),
+    linear-gradient(180deg, rgba(18,28,52,.96), rgba(12,20,36,.98));
+  border: 1px solid rgba(120,140,200,.20);
+  color: #eff5ff;
+  border-top-left-radius: 10px;
 }
-.assistant-bubble {
-    background: #111827;
-    color: #e5e7eb;
-    border: 1px solid #334155;
-    border-bottom-left-radius: 4px;
+
+.assistant-wrap {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
-.msg-label {
-    font-size: 0.76rem;
-    color: #94a3b8;
-    margin-bottom: 4px;
+
+.mini-brain {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255,70,110,.12);
+  color: #ff708a;
+  border: 1px solid rgba(255,120,150,.25);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.msg-time {
+  font-size: 11px;
+  color: #7f92bc;
+  margin-top: 7px;
+}
+
+.msg-time.right {
+  text-align: right;
+}
+
+.actions {
+  margin-top: 10px;
+  color: #9fb0d6;
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+}
+
+.composer {
+  margin-top: 10px;
+  border: 1px solid rgba(120,140,200,.18);
+  border-radius: 18px;
+  background: rgba(9,16,31,.92);
+  padding: 10px 12px;
+}
+
+.composer-tip {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  color: #798db5;
+  font-size: 11px;
+}
+
+/* Right side */
+.side {
+  border: 1px solid rgba(120,140,200,.16);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(12,19,36,.94), rgba(8,14,26,.98));
+  padding: 16px;
+  min-height: 470px;
+}
+
+.side-title {
+  font-size: 14px;
+  font-weight: 900;
+  margin-bottom: 14px;
+}
+
+.recent {
+  margin-top: 8px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  padding-top: 10px;
+}
+
+.recent-row {
+  display: flex;
+  justify-content: space-between;
+  color: #d7e2ff;
+  font-size: 12px;
+  padding: 10px 2px;
+}
+
+.recent-time {
+  color: #7f93bc;
+  white-space: nowrap;
+  margin-left: 10px;
+}
+
+@media (max-width: 1400px) {
+  .workflow { grid-template-columns: repeat(3, 1fr); }
+  .chat-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 1100px) {
+  .left-rail { display: none; }
+  .hero { grid-template-columns: 1fr; }
 }
 </style>
 """,
-        unsafe_allow_html=True,
-    )
+    unsafe_allow_html=True,
+)
 
-    chat_html = ['<div class="chat-wrap">']
-    for message in st.session_state["chat_messages"]:
-        role = message.get("role", "assistant")
-        content = escape_text(message.get("content", ""))
 
-        if role == "user":
-            chat_html.append(
-                f"""
-<div class="msg-row msg-user">
-    <div>
-        <div class="msg-label" style="text-align:right;">You</div>
-        <div class="msg-bubble user-bubble">{content}</div>
+# =========================================================
+# Layout
+# =========================================================
+left, main = st.columns([0.18, 0.82], gap="large")
+
+
+# -------------------------
+# Left rail: real login/profile controls
+# -------------------------
+with left:
+    ui("""
+    <div class="left-rail">
+      <div class="brand">
+        <div class="logo">🧠</div>
+        <div>
+          <div class="brand-title">LLM ASSISTANT</div>
+          <div class="brand-sub">for Software Engineering</div>
+        </div>
+      </div>
+
+      <div class="nav">⌘ Dashboard</div>
+
+      <div class="section">Workflow Modules</div>
+      <div class="module"><div class="module-title"><span class="num">1</span>Requirements</div><div class="module-sub">Generate FR/NFR</div></div>
+      <div class="module"><div class="module-title"><span class="num">2</span>Review</div><div class="module-sub">Find ambiguity</div></div>
+      <div class="module"><div class="module-title"><span class="num">3</span>Tests</div><div class="module-sub">Create test cases</div></div>
+      <div class="module"><div class="module-title"><span class="num">4</span>Architecture</div><div class="module-sub">Suggest components</div></div>
+      <div class="module"><div class="module-title"><span class="num">5</span>Code</div><div class="module-sub">Review quality</div></div>
+      <div class="module"><div class="module-title"><span class="num">6</span>Security</div><div class="module-sub">Defensive risks</div></div>
+
+      <div class="section">History</div>
+      <div class="search">Search conversations 🔎</div>
+      <div class="history active"><div class="history-title">Alzheimer's Safety App</div><span>2m ago</span></div>
+      <div class="history"><div class="history-title">Medication Reminder System</div><span>1d ago</span></div>
+      <div class="history"><div class="history-title">Telehealth Platform</div><span>2d ago</span></div>
+      <div class="history"><div class="history-title">E-Commerce Checkout</div><span>3d ago</span></div>
+      <div class="history"><div class="history-title">IoT Device Monitor</div><span>4d ago</span></div>
     </div>
-</div>
-"""
-            )
-        else:
-            chat_html.append(
-                f"""
-<div class="msg-row msg-assistant">
-    <div>
-        <div class="msg-label">Assistant</div>
-        <div class="msg-bubble assistant-bubble">{content}</div>
-    </div>
-</div>
-"""
-            )
+    """)
 
-    chat_html.append("</div>")
-    st.markdown("\n".join(chat_html), unsafe_allow_html=True)
+    if st.session_state.logged_in:
+        ui(f"""
+        <div class="profile">
+          <div class="avatar">{html.escape(st.session_state.user_name[:1].upper())}</div>
+          <div>
+            <div class="profile-name">{html.escape(st.session_state.user_name)}</div>
+            <div class="profile-mail">{html.escape(st.session_state.user_email)}</div>
+          </div>
+        </div>
+        """)
+        if st.button("Logout", use_container_width=True):
+            st.session_state.logged_in = False
+            st.rerun()
+    else:
+        ui("""
+        <div class="profile">
+          <div class="avatar">?</div>
+          <div>
+            <div class="profile-name">Guest User</div>
+            <div class="profile-mail">Not logged in</div>
+          </div>
+        </div>
+        """)
+        if st.button("Login", use_container_width=True):
+            st.session_state.login_open = not st.session_state.login_open
 
-    user_prompt = st.chat_input("Write a message...")
+        if st.session_state.login_open:
+            with st.form("login_form", clear_on_submit=False):
+                email = st.text_input("Email", placeholder="alex@example.com")
+                password = st.text_input("Password", placeholder="password", type="password")
+                login = st.form_submit_button("Sign in", use_container_width=True)
+                if login:
+                    login_user(email, password)
+                    st.rerun()
 
-    if user_prompt:
-        st.session_state["chat_messages"].append(
-            {"role": "user", "content": user_prompt}
-        )
 
-        with st.spinner("Assistant is thinking..."):
-            result = call_backend(general_ai_response, user_prompt)
+# -------------------------
+# Main area
+# -------------------------
+with main:
+    provider = html.escape(os.getenv("LLM_PROVIDER", "OpenAI"))
+    model = html.escape(os.getenv("OPENAI_MODEL", "DeepSeek-V3.1"))
 
-        if result:
-            answer = result.get("answer", "")
-            st.session_state["chat_messages"].append(
-                {"role": "assistant", "content": answer}
-            )
-        else:
-            st.session_state["chat_messages"].append(
-                {
-                    "role": "assistant",
-                    "content": "I could not generate a response. Please check the provider/model configuration.",
-                }
-            )
+    ui(f"""
+    <section class="hero">
+      <div class="hero-left">
+        <div class="brain-glow"><div class="brain">🧠</div></div>
+      </div>
+      <div class="hero-right">
+        <div class="hero-icons">☼ 🔔</div>
+        <div class="new-project">⊕ New Project</div>
+        <div class="hero-title"><span class="accent">LLM-Powered</span><br>Virtual Assistant for<br>Software Engineering</div>
+        <div class="hero-desc">
+          Generate requirements, review quality, create test cases, suggest architecture,
+          analyze code, and identify defensive security risks using a structured AI workflow.
+        </div>
+        <div class="badges">
+          <div class="badge">🟢 Provider: {provider}</div>
+          <div class="badge">🟣 Model: {model}</div>
+          <div class="badge">🟠 Workflow: Human-in-the-loop SE</div>
+        </div>
+      </div>
+    </section>
 
-        st.rerun()
-with tab_req:
-    st.markdown("#### Generate structured software requirements")
-    st.caption("Converts a project description into assumptions, clarification questions, FRs, NFRs, and risks.")
+    <section class="workflow">
+      <div class="card"><div class="card-num c1">1</div><div class="card-title">Requirements</div><div class="card-sub">Generate FR/NFR</div></div>
+      <div class="card"><div class="card-num c2">2</div><div class="card-title">Review</div><div class="card-sub">Find ambiguity & missing criteria</div></div>
+      <div class="card"><div class="card-num c3">3</div><div class="card-title">Tests</div><div class="card-sub">Create structured test cases</div></div>
+      <div class="card"><div class="card-num c4">4</div><div class="card-title">Architecture</div><div class="card-sub">Suggest components & data flow</div></div>
+      <div class="card"><div class="card-num c5">5</div><div class="card-title">Code</div><div class="card-sub">Review code quality and security</div></div>
+      <div class="card"><div class="card-num c6">6</div><div class="card-title">Security</div><div class="card-sub">Generate defensive risk scenarios</div></div>
+    </section>
 
-    if st.button("Generate requirements", key="btn_req", type="primary"):
-        if is_short_or_generic(project_description):
-            st.session_state["result_requirements"] = {
-                "status": "insufficient_input",
-                "message": "The input is too short or too generic to generate meaningful requirements.",
-                "required_input": [
-                    "Describe the goal of the software system.",
-                    "Identify primary users or stakeholders.",
-                    "List the main features or workflows.",
-                    "Mention important data, constraints, privacy, or security concerns.",
-                ],
-                "example_input": EXAMPLE_PROJECT,
-            }
-        else:
-            result = call_backend(generate_requirements, project_description, use_context=use_context)
-            if result:
-                st.session_state["result_requirements"] = result
+    <section class="brief-card">
+      <div class="brief-head">
+        <div>
+          <div class="brief-title">Project Brief ⓘ</div>
+          <div class="brief-sub">Describe the software system</div>
+        </div>
+        <div class="brief-btn">📄 Detailed project brief</div>
+      </div>
+    </section>
+    """)
 
-    result = st.session_state.get("result_requirements")
-    if result:
-        if result.get("status") == "insufficient_input":
-            show_guidance_for_short_input()
-            render_list("Required details", result.get("required_input", []), "•")
-        else:
-            render_requirements(result)
-        render_raw_toggle(result, "requirements_output")
-
-with tab_review:
-    st.markdown("#### Review requirements quality")
-    st.caption("Detects ambiguity, missing acceptance criteria, privacy/security gaps, and unverifiable statements.")
-
-    review_context = get_requirements_or_project_text(project_description)
-    render_auto_context_notice("Review source", review_context)
-
-    if st.button("Review requirements", key="btn_review", type="primary"):
-        if is_short_or_generic(review_context):
-            st.warning("Please generate requirements first or provide a richer project brief.")
-        else:
-            result = call_backend(review_requirements, review_context, use_context=use_context)
-            if result:
-                st.session_state["result_review"] = result
-
-    result = st.session_state.get("result_review")
-    if result:
-        render_review(result)
-        if st.session_state.get("advanced_mode", False):
-            render_raw_toggle(result, "review_output")
-
-with tab_tests:
-    st.markdown("#### Generate test cases")
-    st.caption("Transforms requirements into test cases with steps, expected results, priority, and coverage notes.")
-
-    test_context = get_requirements_or_project_text(project_description)
-    render_auto_context_notice("Test generation source", test_context)
-
-    if st.button("Generate test cases", key="btn_tests", type="primary"):
-        if is_short_or_generic(test_context):
-            st.warning("Please generate requirements first or provide a richer project brief.")
-        else:
-            result = call_backend(generate_test_cases, test_context, use_context=use_context)
-            if result:
-                st.session_state["result_tests"] = result
-
-    result = st.session_state.get("result_tests")
-    if result:
-        render_test_cases(result)
-        if st.session_state.get("advanced_mode", False):
-            render_raw_toggle(result, "test_cases_output")
-
-with tab_arch:
-    st.markdown("#### Suggest high-level architecture")
-    st.caption("Generates architecture style, components, data flow, technology stack, deployment view, and HITL points.")
-
-    arch_requirements = st.text_area(
-        "Requirements/context for architecture suggestion",
-        value=get_requirements_or_project_text(project_description),
-        height=180,
-        key="arch_input",
+    st.text_area(
+        "Project Brief",
+        key="project_brief",
+        height=86,
+        placeholder="Describe your software project here...",
+        label_visibility="collapsed",
     )
 
-    if st.button("Suggest architecture", key="btn_arch", type="primary"):
-        if is_short_or_generic(arch_requirements):
-            st.warning("Please provide a meaningful project brief or generated requirements.")
-        else:
-            result = call_backend(suggest_architecture, project_description, arch_requirements, use_context=use_context)
-            if result:
-                st.session_state["result_architecture"] = result
+    ui("""
+    <nav class="tabs">
+      <div class="tab active">General AI Chat</div>
+      <div class="tab">Requirements</div>
+      <div class="tab">Review</div>
+      <div class="tab">Test Cases</div>
+      <div class="tab">Architecture</div>
+      <div class="tab">Code Analysis</div>
+      <div class="tab">Security / Unsafe Scenarios</div>
+    </nav>
+    """)
 
-    result = st.session_state.get("result_architecture")
-    if result:
-        render_architecture(result)
-        render_raw_toggle(result, "architecture_output")
+    chat_col, side_col = st.columns([0.74, 0.26], gap="large")
 
-with tab_code:
-    st.markdown("#### Analyze code quality and basic security")
-    st.caption("Reviews a code snippet for visible bugs, readability, maintainability, reliability, and defensive security issues.")
+    with chat_col:
+        message_blocks = []
 
-    if "code_text" not in st.session_state:
-        st.session_state["code_text"] = EXAMPLE_CODE
+        if not st.session_state.chat_messages:
+            message_blocks.append("""
+            <div style="height: 230px; display: flex; align-items: center; justify-content: center; color: #7f90b2; text-align: center;">
+              <div>
+                <div style="font-size: 34px; margin-bottom: 10px;">??</div>
+                <div style="font-size: 16px; font-weight: 800; color: #dce7ff;">Start a new AI conversation</div>
+                <div style="font-size: 13px; margin-top: 6px;">Ask about requirements, testing, architecture, code review, or project documentation.</div>
+              </div>
+            </div>
+            """)
 
-    code_text = st.text_area(
-        "Code snippet to analyze",
-        key="code_text",
-        height=220,
-    )
+        for msg in st.session_state.chat_messages[-8:]:
+            role = msg.get("role", "assistant")
+            content = html.escape(msg.get("content", "")).replace("\\n", "<br>")
+            t = html.escape(msg.get("time", ""))
 
-    if st.button("Analyze code", key="btn_code", type="primary"):
-        if len(code_text.strip()) < 10:
-            st.warning("Please provide a meaningful code snippet.")
-        else:
-            result = call_backend(analyze_code, code_text, use_context=use_context)
-            if result:
-                st.session_state["result_code"] = result
+            if role == "user":
+                message_blocks.append(f"""
+                <div class="msg-row user">
+                  <div>
+                    <div class="bubble user">{content}</div>
+                    <div class="msg-time right">{t} ??</div>
+                  </div>
+                </div>
+                """)
+            else:
+                message_blocks.append(f"""
+                <div class="msg-row assistant">
+                  <div class="assistant-wrap">
+                    <div class="mini-brain">??</div>
+                    <div>
+                      <div class="bubble assistant">
+                        {content}
+                        <div class="actions">?? ?? ??</div>
+                      </div>
+                      <div class="msg-time">{t}</div>
+                    </div>
+                  </div>
+                </div>
+                """)
 
-    result = st.session_state.get("result_code")
-    if result:
-        render_code_analysis(result)
-        render_raw_toggle(result, "code_analysis_output")
+        ui(f"""
+        <section class="chat">
+          <div class="chat-title">General AI Chat</div>
+          <div class="chat-desc">Ask general questions, request explanations, translations, or SE guidance.</div>
+          <div class="messages">
+            {''.join(message_blocks)}
+          </div>
+        </section>
+        """)
 
-with tab_attack:
-    st.markdown("#### Generate defensive attack and unsafe scenarios")
-    st.caption("Produces defensive risk scenarios, unsafe cases, mitigations, and validation tests.")
-
-    attack_context = st.text_area(
-        "Requirements/context for defensive risk analysis",
-        value=get_requirements_or_project_text(project_description),
-        height=190,
-        key="attack_input",
-    )
-
-    if st.button("Generate defensive scenarios", key="btn_attack", type="primary"):
-        if is_short_or_generic(attack_context):
-            st.warning("Please provide a meaningful project brief or generated requirements.")
-        else:
-            result = call_backend(
-                generate_attack_scenarios,
-                project_description,
-                attack_context,
-                use_context=use_context,
+        ui('<div class="composer">')
+        with st.form("chat_form", clear_on_submit=True):
+            prompt = st.text_input(
+                "Ask",
+                placeholder="Ask anything about the project or software engineering...",
+                label_visibility="collapsed",
             )
-            if result:
-                st.session_state["result_attack"] = result
 
-    result = st.session_state.get("result_attack")
-    if result:
-        render_attack_scenarios(result)
-        render_raw_toggle(result, "attack_scenarios_output")
+            send = st.form_submit_button("Send", use_container_width=True)
+
+            if send and prompt.strip():
+                submit_prompt(prompt)
+                st.rerun()
+
+        ui("""
+          <div class="composer-tip">
+            <div>Tip: write your message and press Send</div>
+            <div>Real AI chat connected here</div>
+          </div>
+        </div>
+        """)
+
+    with side_col:
+        ui("""
+        <aside class="side">
+          <div class="side-title">✨ Suggestions</div>
+        """)
+
+        suggestions = [
+            "List the functional requirements",
+            "Identify potential risks",
+            "Suggest system architecture",
+            "Create test cases for login",
+            "Review data privacy concerns",
+        ]
+        for idx, suggestion in enumerate(suggestions):
+            if st.button(f"{suggestion}  →", key=f"suggestion_{idx}", use_container_width=True):
+                submit_prompt(suggestion)
+                st.rerun()
+
+        ui("""
+          <div class="side-title" style="margin-top:18px;">◔ Recent actions</div>
+          <div class="recent">
+            <div class="recent-row"><span>Explain authentication flow</span><span class="recent-time">2m ago</span></div>
+            <div class="recent-row"><span>Translate feature spec</span><span class="recent-time">1h ago</span></div>
+            <div class="recent-row"><span>Generate test cases for API</span><span class="recent-time">Yesterday</span></div>
+          </div>
+        </aside>
+        """)
