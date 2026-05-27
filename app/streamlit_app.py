@@ -36,6 +36,12 @@ if "project_brief" not in st.session_state:
     # Empty on initial load, as requested.
     st.session_state.project_brief = ""
 
+if "workflow_result" not in st.session_state:
+    st.session_state.workflow_result = ""
+
+if "workflow_title" not in st.session_state:
+    st.session_state.workflow_title = ""
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -768,6 +774,36 @@ input:focus {
 }
 
 /* Right side */
+.workflow-result {
+  margin-top: 16px;
+  border: 1px solid rgba(120,140,200,.16);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(80,120,255,.10), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.96), rgba(8,14,26,.98));
+  padding: 18px;
+}
+
+.workflow-result-title {
+  font-size: 16px;
+  font-weight: 900;
+  color: #ffffff;
+  margin-bottom: 10px;
+}
+
+.workflow-result-body {
+  color: #eaf1ff;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.workflow-empty {
+  color: #7f90b2;
+  font-size: 13px;
+  padding: 20px 0;
+}
+
 .side {
   border: 1px solid rgba(120,140,200,.16);
   border-radius: 22px;
@@ -838,14 +874,6 @@ with left:
       </div>
 
       <div class="nav">⌘ Dashboard</div>
-
-      <div class="section">Workflow Modules</div>
-      <div class="module"><div class="module-title"><span class="num">1</span>Requirements</div><div class="module-sub">Generate FR/NFR</div></div>
-      <div class="module"><div class="module-title"><span class="num">2</span>Review</div><div class="module-sub">Find ambiguity</div></div>
-      <div class="module"><div class="module-title"><span class="num">3</span>Tests</div><div class="module-sub">Create test cases</div></div>
-      <div class="module"><div class="module-title"><span class="num">4</span>Architecture</div><div class="module-sub">Suggest components</div></div>
-      <div class="module"><div class="module-title"><span class="num">5</span>Code</div><div class="module-sub">Review quality</div></div>
-      <div class="module"><div class="module-title"><span class="num">6</span>Security</div><div class="module-sub">Defensive risks</div></div>
 
       <div class="section">History</div>
       <div class="search">Search conversations 🔎</div>
@@ -1058,9 +1086,29 @@ Return:
             else:
                 prompt = brief or "How can I improve this software engineering project?"
 
-            submit_prompt(prompt)
+            with st.spinner("Running workflow..."):
+                result = ask_ai(prompt)
+
+            st.session_state.workflow_title = action
+            st.session_state.workflow_result = result
             st.rerun()
 
+
+
+    if st.session_state.get("workflow_result"):
+        ui(f"""
+        <section class="workflow-result">
+          <div class="workflow-result-title">Workflow Result ? {html.escape(st.session_state.get("workflow_title", "AI Output"))}</div>
+          <div class="workflow-result-body">{html.escape(st.session_state.workflow_result)}</div>
+        </section>
+        """)
+    else:
+        ui("""
+        <section class="workflow-result">
+          <div class="workflow-result-title">Workflow Result</div>
+          <div class="workflow-empty">Run Requirements, Review, Test Cases, Architecture, Code Analysis, or Security to see structured output here.</div>
+        </section>
+        """)
 
     chat_col, side_col = st.columns([0.74, 0.26], gap="large")
 
