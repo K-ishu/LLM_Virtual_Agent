@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 from datetime import datetime
 from textwrap import dedent
 
@@ -14,9 +15,9 @@ except Exception:
     LLMClient = None
 
 
-# =========================================================
-# Page config
-# =========================================================
+# -----------------------------
+# Page setup
+# -----------------------------
 st.set_page_config(
     page_title="LLM-Powered Virtual Assistant",
     page_icon="🧠",
@@ -25,49 +26,54 @@ st.set_page_config(
 )
 
 
-# =========================================================
+# -----------------------------
 # State
-# =========================================================
+# -----------------------------
 def now_time() -> str:
     return datetime.now().strftime("%I:%M %p").lstrip("0")
 
 
-if "project_brief" not in st.session_state:
-    # Empty on initial load, as requested.
-    st.session_state.project_brief = ""
+defaults = {
+    "project_brief": "",
+    "workflow_result": "",
+    "workflow_title": "",
+    "logged_in": False,
+    "login_open": False,
+    "user_name": "Guest User",
+    "user_email": "Not logged in",
+    "chat_messages": [],
+    "chat_history": [],
+    "project_history": [],
+    "chat_closed": False,
+    "chat_minimized": False,
+}
 
-if "workflow_result" not in st.session_state:
-    st.session_state.workflow_result = ""
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
-if "workflow_title" not in st.session_state:
-    st.session_state.workflow_title = ""
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-if "login_open" not in st.session_state:
-    st.session_state.login_open = False
-
-if "user_name" not in st.session_state:
-    st.session_state.user_name = "Alex Morgan"
-
-if "user_email" not in st.session_state:
-    st.session_state.user_email = "alex@example.com"
-
-if "chat_messages" not in st.session_state:
-    # Empty chat on first app load.
-    st.session_state.chat_messages = []
-
-if "chat_history" not in st.session_state:
-    # Saved chat history during the current Streamlit session.
-    st.session_state.chat_history = []
+# Chat header controls from HTML links
+chat_action = st.query_params.get("chat_action", None)
+if chat_action == "toggle":
+    st.session_state.chat_minimized = not st.session_state.get("chat_minimized", False)
+    st.query_params.clear()
+    st.rerun()
+elif chat_action == "close":
+    st.session_state.chat_closed = True
+    st.query_params.clear()
+    st.rerun()
+elif chat_action == "open":
+    st.session_state.chat_closed = False
+    st.session_state.chat_minimized = False
+    st.query_params.clear()
+    st.rerun()
 
 
-# =========================================================
+
+# -----------------------------
 # Helpers
-# =========================================================
-def ui(markup: str) -> None:
-    """Render HTML as real HTML, not as Markdown/code."""
+# -----------------------------
+def render_html(markup: str) -> None:
     markup = dedent(markup).strip()
     if hasattr(st, "html"):
         st.html(markup)
@@ -103,9 +109,10 @@ def clean_ai_text(value) -> str:
 def ask_ai(prompt: str) -> str:
     system_prompt = (
         "You are a professional AI assistant for software engineering. "
-        "Answer clearly, practically, and concisely. "
-        "If the user writes in Persian, answer in Persian. "
-        "Do not return raw JSON unless explicitly requested."
+        "Answer clearly and practically. "
+        "For workflow tasks, use structured presentation headings and bullet points. "
+        "Do not return raw JSON unless the user explicitly asks for JSON. "
+        "If the user writes in Persian, answer in Persian."
     )
 
     if LLMClient is None:
@@ -119,49 +126,70 @@ def ask_ai(prompt: str) -> str:
         return f"AI request failed: {exc}"
 
 
-def submit_prompt(prompt: str) -> None:
+def submit_chat(prompt: str) -> None:
     prompt = (prompt or "").strip()
     if not prompt:
         return
 
-    user_msg = {"role": "user", "content": prompt, "time": now_time()}
-    st.session_state.chat_messages.append(user_msg)
+    user_message = {"role": "user", "content": prompt, "time": now_time()}
+    st.session_state.chat_messages.append(user_message)
 
-    with st.spinner("Thinking..."):
+    with st.spinner("AI is answering..."):
         answer = ask_ai(prompt)
 
-    assistant_msg = {"role": "assistant", "content": answer, "time": now_time()}
-    st.session_state.chat_messages.append(assistant_msg)
+    assistant_message = {"role": "assistant", "content": answer, "time": now_time()}
+    st.session_state.chat_messages.append(assistant_message)
 
-    st.session_state.chat_history.append({
-        "question": prompt,
-        "answer": answer,
+    st.session_state.chat_history.append(
+        {"question": prompt, "answer": answer, "time": now_time()}
+    )
+
+
+def save_project_history() -> None:
+    brief = st.session_state.get("project_brief", "").strip()
+    if not brief:
+        return
+
+    title = brief[:42].strip()
+    if len(brief) > 42:
+        title += "..."
+
+    item = {
+        "title": title,
+        "brief": brief,
         "time": now_time(),
-    })
+    }
 
+    # Avoid saving exact duplicate briefs repeatedly.
+    existing = [
+        x for x in st.session_state.project_history
+        if x.get("brief", "").strip() != brief
+    ]
+    st.session_state.project_history = [item] + existing
+    st.session_state.project_history = st.session_state.project_history[:6]
 
 
 def normalize_result_text(text: str) -> str:
-    """Convert JSON-ish or markdown-ish output into readable text."""
     text = clean_ai_text(text)
-
-    # Remove code fences if model returns them.
     text = text.replace("```json", "").replace("```", "").strip()
 
     try:
         data = json.loads(text)
         if isinstance(data, dict):
-            parts = []
+            sections = []
             for key, value in data.items():
                 title = str(key).replace("_", " ").title()
                 if isinstance(value, list):
-                    body = "\n".join(f"? {clean_ai_text(item)}" for item in value)
+                    body = "\n".join(f"• {clean_ai_text(item)}" for item in value)
                 elif isinstance(value, dict):
-                    body = "\n".join(f"? {str(k).replace('_', ' ').title()}: {clean_ai_text(v)}" for k, v in value.items())
+                    body = "\n".join(
+                        f"• {str(k).replace('_', ' ').title()}: {clean_ai_text(v)}"
+                        for k, v in value.items()
+                    )
                 else:
                     body = clean_ai_text(value)
-                parts.append(f"## {title}\n{body}")
-            return "\n\n".join(parts)
+                sections.append(f"## {title}\n{body}")
+            return "\n\n".join(sections)
     except Exception:
         pass
 
@@ -169,7 +197,6 @@ def normalize_result_text(text: str) -> str:
 
 
 def split_result_sections(text: str) -> list[tuple[str, str]]:
-    """Split model output into presentation-friendly cards."""
     text = normalize_result_text(text)
 
     known_titles = [
@@ -190,17 +217,18 @@ def split_result_sections(text: str) -> list[tuple[str, str]]:
         "Technology Stack",
         "Deployment View",
         "Security Considerations",
+        "Potential Abuse Cases",
         "Security Risks",
         "Privacy Risks",
         "Mitigations",
         "Validation Tests",
         "Summary",
+        "Detected Language/Technology",
         "Quality Findings",
         "Security Findings",
         "Recommended Improvements",
     ]
 
-    # Normalize common markdown headings.
     normalized = text
     for title in known_titles:
         normalized = re.sub(
@@ -210,63 +238,173 @@ def split_result_sections(text: str) -> list[tuple[str, str]]:
         )
 
     matches = list(re.finditer(r"(?m)^##\s+(.+?)\s*$", normalized))
-    sections = []
+    if not matches:
+        return [("AI Output", normalized.strip())]
 
-    if matches:
-        for idx, match in enumerate(matches):
-            title = match.group(1).strip()
-            start = match.end()
-            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(normalized)
-            body = normalized[start:end].strip()
-            if body:
-                sections.append((title, body))
-        return sections
+    sections: list[tuple[str, str]] = []
+    for idx, match in enumerate(matches):
+        title = match.group(1).strip()
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(normalized)
+        body = normalized[start:end].strip()
+        if body:
+            sections.append((title, body))
 
-    # Fallback: one clean card.
-    return [("AI Output", normalized.strip())]
-
-
-def render_workflow_cards(title: str, result: str) -> None:
-    sections = split_result_sections(result)
-
-    cards = []
-    for section_title, section_body in sections:
-        safe_title = html.escape(section_title)
-        safe_body = html.escape(section_body)
-        cards.append(f"""
-        <div class="result-card">
-          <div class="result-card-title">{safe_title}</div>
-          <div class="result-card-body">{safe_body}</div>
-        </div>
-        """)
-
-    ui(f"""
-    <section class="workflow-result">
-      <div class="workflow-result-title">Workflow Result ? {html.escape(title)}</div>
-      <div class="result-note">Structured presentation view. Each requirement category is separated for clarity.</div>
-      <div class="result-grid">
-        {''.join(cards)}
-      </div>
-    </section>
-    """)
+    return sections or [("AI Output", normalized.strip())]
 
 
-def login_user(email: str, password: str) -> None:
-    email = (email or "").strip()
-    if not email:
-        st.toast("Please enter an email.", icon="⚠️")
+def render_workflow_result() -> None:
+    if not st.session_state.workflow_result:
+        render_html(
+            """
+            <section class="workflow-result">
+              <div class="workflow-result-title">Workflow Result</div>
+              <div class="workflow-empty">
+                Run Requirements, Review, Test Cases, Architecture, Code Analysis, or Security.
+                The structured output will appear here as separate presentation cards.
+              </div>
+            </section>
+            """
+        )
         return
 
-    st.session_state.logged_in = True
-    st.session_state.user_email = email
-    st.session_state.user_name = email.split("@")[0].replace(".", " ").title()
-    st.session_state.login_open = False
-    st.toast("Logged in successfully.", icon="✅")
+    sections = split_result_sections(st.session_state.workflow_result)
+    cards = []
+    for title, body in sections:
+        safe_title = html.escape(title)
+        safe_body = html.escape(body).replace("\n", "<br>")
+        cards.append(
+            f"""
+            <div class="result-card">
+              <div class="result-card-title">{safe_title}</div>
+              <div class="result-card-body">{safe_body}</div>
+            </div>
+            """
+        )
+
+    render_html(
+        f"""
+        <section class="workflow-result">
+          <div class="workflow-result-title">
+            Workflow Result: {html.escape(st.session_state.workflow_title or "AI Output")}
+          </div>
+          <div class="workflow-result-note">
+            Presentation-ready view. Each category is separated into its own card.
+          </div>
+          <div class="result-grid">
+            {''.join(cards)}
+          </div>
+        </section>
+        """
+    )
 
 
-# =========================================================
+def run_workflow(action: str, brief: str) -> None:
+    brief = (brief or "").strip()
+
+    if not brief:
+        st.warning("Write a project brief first.")
+        return
+
+    prompts = {
+        "Requirements": f"""Generate professional software requirements for this project brief:
+
+{brief}
+
+Return the answer in clear presentation format with these exact headings:
+## Assumptions
+## Clarification Questions
+## Functional Requirements
+## Non-Functional Requirements
+## Risks
+
+Do not return raw JSON. Use concise professional bullet points.""",
+        "Review": f"""Review this project brief or requirements:
+
+{brief}
+
+Return the answer with these headings:
+## Review Summary
+## Detected Issues
+## Recommendations
+## Improved Requirements
+
+Focus on ambiguity, missing acceptance criteria, privacy/security gaps, contradictions, and unverifiable statements. Do not return raw JSON.""",
+        "Test Cases": f"""Generate professional test cases for this project:
+
+{brief}
+
+Return the answer with this heading:
+## Test Cases
+
+For each test case include ID, priority, preconditions, steps, expected result, and requirement covered. Do not return raw JSON.""",
+        "Architecture": f"""Suggest a high-level software architecture for this project:
+
+{brief}
+
+Return the answer with these headings:
+## Architecture Style
+## Main Components
+## Data Flow
+## Technology Stack
+## Deployment View
+## Security Considerations
+
+Do not return raw JSON.""",
+        "Code Analysis": f"""Analyze this code or technical description:
+
+{brief}
+
+Return the answer with these headings:
+## Summary
+## Detected Language/Technology
+## Quality Findings
+## Security Findings
+## Recommended Improvements
+
+Do not return raw JSON.""",
+        "Security": f"""Generate defensive security and unsafe scenario analysis for this project:
+
+{brief}
+
+Return the answer with these headings:
+## Potential Abuse Cases
+## Security Risks
+## Privacy Risks
+## Mitigations
+## Validation Tests
+
+Do not return raw JSON.""",
+    }
+
+    prompt = prompts[action]
+
+    with st.spinner("Running workflow..."):
+        result = ask_ai(prompt)
+
+    save_project_history()
+    st.session_state.workflow_title = action
+    st.session_state.workflow_result = result
+
+
+def login_user(username: str, password: str) -> bool:
+    expected_user = os.getenv("APP_USERNAME", "admin")
+    expected_password = os.getenv("APP_PASSWORD", "admin")
+
+    if username == expected_user and password == expected_password:
+        st.session_state.logged_in = True
+        st.session_state.user_name = username
+        st.session_state.user_email = f"{username}@local"
+        st.toast("Logged in.", icon="✅")
+        return True
+
+    st.error("Invalid username or password.")
+    return False
+
+
+# -----------------------------
 # CSS
-# =========================================================
+# -----------------------------
 st.markdown(
     """
 <style>
@@ -276,71 +414,59 @@ st.markdown(
   --panel: #0b1424;
   --panel2: #0e192c;
   --stroke: rgba(117,142,200,.18);
-  --stroke2: rgba(117,142,200,.30);
+  --stroke2: rgba(117,142,200,.32);
   --text: #edf4ff;
   --muted: #91a2c0;
-  --muted2: #667794;
   --red: #ff4f5f;
-  --red2: #b23248;
   --purple: #8c5cff;
-  --blue: #3f8cff;
-  --cyan: #2dd4bf;
   --green: #22c55e;
-  --amber: #f59e0b;
 }
 
 html, body, [class*="css"], .stApp {
-  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
 }
 
 .stApp {
   background:
-    radial-gradient(circle at 18% 10%, rgba(27,58,132,0.25), transparent 25%),
-    radial-gradient(circle at 76% 8%, rgba(117,58,255,0.13), transparent 24%),
-    radial-gradient(circle at 52% 85%, rgba(0,120,255,0.08), transparent 32%),
-    linear-gradient(180deg, #060b15 0%, #050913 36%, #05070e 100%);
+    radial-gradient(circle at 16% 10%, rgba(27,58,132,0.25), transparent 25%),
+    radial-gradient(circle at 75% 10%, rgba(117,58,255,0.14), transparent 24%),
+    linear-gradient(180deg, #060b15 0%, #050913 38%, #05070e 100%);
   color: var(--text);
 }
 
 header[data-testid="stHeader"] { background: transparent !important; }
 #MainMenu, footer { visibility: hidden; }
-[data-testid="stSidebar"], section[data-testid="stSidebar"] { display: none !important; }
+[data-testid="stSidebar"], section[data-testid="stSidebar"] { display:none !important; }
 
 .block-container {
   max-width: 1700px !important;
-  padding: 14px 18px 34px 18px !important;
-}
-
-div[data-testid="column"] {
-  min-width: 0;
+  padding: 22px 22px 36px !important;
 }
 
 /* Native widgets */
 .stTextArea textarea,
-.stTextInput input,
-.stTextInput textarea {
-  background: rgba(8,14,26,.94) !important;
-  color: #edf2ff !important;
+.stTextInput input {
+  background: rgba(8,14,26,.95) !important;
+  color: #edf4ff !important;
   border-radius: 12px !important;
-  border: 1px solid rgba(120,140,200,.22) !important;
+  border: 1px solid rgba(120,140,200,.24) !important;
   font-size: 14px !important;
-  padding: 14px 16px !important;
   box-shadow: none !important;
 }
 
 .stTextArea textarea::placeholder,
 .stTextInput input::placeholder {
-  color: #7f90b2 !important;
+  color: #7890ba !important;
   opacity: 1 !important;
 }
 
 .stButton > button,
 .stFormSubmitButton > button {
   border-radius: 12px !important;
-  border: 1px solid rgba(120,140,200,.20) !important;
+  border: 1px solid rgba(120,140,200,.22) !important;
   background: linear-gradient(180deg, rgba(12,19,36,.96), rgba(8,14,26,.98)) !important;
   color: #eef4ff !important;
-  font-weight: 800 !important;
+  font-weight: 850 !important;
   min-height: 40px !important;
   box-shadow: none !important;
 }
@@ -351,61 +477,86 @@ div[data-testid="column"] {
   color: white !important;
 }
 
-textarea:focus,
-input:focus {
-  border-color: rgba(255,95,110,.42) !important;
-  box-shadow: 0 0 0 1px rgba(255,95,110,.15) !important;
+/* Login screen */
+.login-screen {
+  min-height: 88vh;
+  display: grid;
+  place-items: center;
+}
+
+.login-card-screen {
+  width: min(520px, 92vw);
+  border: 1px solid rgba(255,80,110,.34);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255,80,130,.10), transparent 26%),
+    radial-gradient(circle at 80% 0%, rgba(120,90,255,.12), transparent 30%),
+    linear-gradient(180deg, rgba(12,20,40,.98), rgba(8,14,26,.99));
+  box-shadow: 0 26px 90px rgba(0,0,0,.35);
+  padding: 34px;
+  text-align: center;
+}
+
+.login-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+  font-size: 38px;
+  background: linear-gradient(180deg, rgba(255,95,95,.24), rgba(255,95,95,.06));
+  border: 1px solid rgba(255,120,120,.35);
+}
+
+.login-title {
+  font-size: 28px;
+  font-weight: 950;
+  margin-bottom: 8px;
+}
+
+.login-sub {
+  color: #9fb0d6;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 22px;
 }
 
 /* Sidebar */
 .left-rail {
   border-right: 1px solid rgba(255,255,255,.08);
   padding: 18px 16px 20px 4px;
-  min-height: calc(100vh - 40px);
+  min-height: calc(100vh - 45px);
 }
 
 .brand {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin: 8px 0 24px 0;
+  margin-bottom: 28px;
 }
 
 .logo {
   width: 48px;
   height: 48px;
-  border-radius: 15px;
+  border-radius: 16px;
   display: grid;
   place-items: center;
   font-size: 25px;
-  color: #ff6f7d;
   background: linear-gradient(180deg, rgba(255,95,95,.22), rgba(255,95,95,.05));
   border: 1px solid rgba(255,120,120,.35);
-  box-shadow: 0 0 28px rgba(255,80,120,.15);
 }
 
-.brand-title {
-  font-size: 16px;
-  font-weight: 900;
-  line-height: 1.1;
-}
-
-.brand-sub {
-  font-size: 12px;
-  color: #b7c3dd;
-  margin-top: 3px;
-}
+.brand-title { font-size: 16px; font-weight: 950; }
+.brand-sub { font-size: 12px; color: #b7c3dd; margin-top: 3px; }
 
 .nav {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 13px 15px;
+  padding: 14px 16px;
   border-radius: 14px;
   border: 1px solid rgba(255,110,120,.42);
   background: linear-gradient(90deg, rgba(255,90,90,.14), rgba(255,90,90,.04));
-  font-weight: 800;
-  margin-bottom: 24px;
+  font-weight: 900;
+  margin-bottom: 26px;
 }
 
 .section {
@@ -417,80 +568,42 @@ input:focus {
   margin: 18px 0 10px;
 }
 
-.module,
-.history,
-.profile,
-.login-card {
+.history, .profile {
   border: 1px solid rgba(120,140,200,.18);
   background: linear-gradient(180deg, rgba(11,19,38,.85), rgba(8,15,30,.92));
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: 13px;
+  padding: 12px 14px;
   margin-bottom: 10px;
-  color: #dfe8ff;
 }
 
-.module-title {
-  display: flex;
-  align-items: center;
-  font-size: 13px;
-  color: white;
-  font-weight: 850;
+.history.active {
+  border-color: rgba(255,95,95,.42);
+  background: linear-gradient(180deg, rgba(120,25,35,.28), rgba(15,18,35,.95));
 }
 
-.num {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  margin-right: 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 900;
-  background: rgba(95,120,255,.15);
-  color: #c9d3ff;
-  border: 1px solid rgba(120,140,255,.35);
-}
-
-.module-sub,
-.history span,
-.profile-mail {
-  font-size: 11px;
-  color: #8ea0c6;
-}
+.history-title { font-size: 13px; font-weight: 800; color: white; }
+.history span, .profile-mail { font-size: 11px; color: #8ea0c6; }
 
 .search {
   border: 1px solid rgba(120,140,200,.18);
   background: rgba(10,17,31,.90);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 11px 12px;
   color: #8292b7;
   font-size: 12px;
   margin-bottom: 12px;
 }
 
-.history.active {
-  border-color: rgba(255,95,95,.40);
-  background: linear-gradient(180deg, rgba(120,25,35,.28), rgba(15,18,35,.95));
-}
-
-.history-title {
-  font-size: 13px;
-  color: white;
-  font-weight: 700;
-  margin-bottom: 3px;
-}
-
 .profile {
-  margin-top: 18px;
-  border-radius: 14px;
+  margin-top: 22px;
   display: flex;
-  gap: 10px;
+  gap: 11px;
   align-items: center;
 }
 
 .avatar {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -499,88 +612,58 @@ input:focus {
   font-weight: 900;
 }
 
-.profile-name {
-  font-size: 13px;
-  font-weight: 800;
-}
+.profile-name { font-size: 13px; font-weight: 850; }
 
 /* Hero */
 .hero {
   border-radius: 24px;
-  border: 1px solid rgba(120,140,200,.16);
+  border: 1px solid rgba(120,140,200,.17);
   overflow: hidden;
   display: grid;
   grid-template-columns: 42% 58%;
-  min-height: 292px;
+  min-height: 290px;
   background:
     radial-gradient(circle at 30% 30%, rgba(40,90,255,.18), transparent 28%),
     radial-gradient(circle at 70% 30%, rgba(255,60,120,.08), transparent 22%),
     linear-gradient(180deg, rgba(10,19,38,.96), rgba(8,13,26,.98));
-  box-shadow: 0 10px 50px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.02);
+  box-shadow: 0 10px 50px rgba(0,0,0,.24), inset 0 0 0 1px rgba(255,255,255,.02);
 }
 
 .hero-left {
   position: relative;
   display: grid;
   place-items: center;
-  min-height: 292px;
-  border-right: 1px solid rgba(255,255,255,.05);
+  border-right: 1px solid rgba(255,255,255,.06);
   background:
     radial-gradient(circle at 50% 43%, rgba(255,91,126,.30), transparent 14%),
-    radial-gradient(circle at 50% 43%, rgba(111,92,255,.28), transparent 25%),
-    radial-gradient(circle at center, rgba(80,130,255,.20), transparent 30%),
+    radial-gradient(circle at 50% 43%, rgba(111,92,255,.30), transparent 26%),
     linear-gradient(180deg, rgba(8,16,34,.90), rgba(8,16,34,.98));
 }
 
-.hero-left::after {
-  content: "";
-  position: absolute;
-  bottom: 31px;
-  width: 210px;
-  height: 40px;
-  background: radial-gradient(circle, rgba(141,72,255,.50), rgba(70,60,255,.10), transparent 75%);
-  filter: blur(10px);
-}
-
 .hero-left::before {
-  content: "";
-  position: absolute;
-  inset: 0;
+  content:"";
+  position:absolute;
+  inset:0;
   background-image:
     linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
   background-size: 34px 34px;
-  opacity: .55;
 }
 
-.brain-glow {
-  position: relative;
-  width: 240px;
-  height: 190px;
-  display: grid;
-  place-items: center;
-  z-index: 2;
-}
-
-.brain-glow::before {
-  content: "";
-  position: absolute;
-  width: 245px;
-  height: 170px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(255,92,132,.20), transparent 62%),
-    radial-gradient(circle, rgba(125,92,255,.26), transparent 70%);
-  filter: blur(12px);
+.hero-left::after {
+  content:"";
+  position:absolute;
+  bottom:34px;
+  width:210px;
+  height:42px;
+  background: radial-gradient(circle, rgba(141,72,255,.54), rgba(70,60,255,.10), transparent 75%);
+  filter: blur(10px);
 }
 
 .brain {
-  position: relative;
-  font-size: 116px;
-  z-index: 3;
-  filter:
-    drop-shadow(0 0 20px rgba(255,90,130,.32))
-    drop-shadow(0 0 34px rgba(120,95,255,.22));
+  font-size: 118px;
+  z-index: 2;
+  filter: drop-shadow(0 0 22px rgba(255,90,130,.35)) drop-shadow(0 0 34px rgba(120,95,255,.22));
 }
 
 .hero-right {
@@ -589,302 +672,125 @@ input:focus {
 }
 
 .hero-icons {
-  position: absolute;
-  top: 25px;
-  right: 25px;
-  display: flex;
-  gap: 18px;
-  font-size: 22px;
-}
-
-.new-project {
-  position: absolute;
-  top: 20px;
-  right: 92px;
-  background: linear-gradient(180deg, #ff6f61, #ff5a4f);
-  color: white;
-  padding: 11px 16px;
-  border-radius: 14px;
-  font-size: 14px;
-  font-weight: 900;
-  box-shadow: 0 10px 28px rgba(255,90,90,.22);
+  position:absolute;
+  top:25px;
+  right:25px;
+  display:flex;
+  gap:18px;
+  font-size:22px;
 }
 
 .hero-title {
-  margin-top: 40px;
+  margin-top: 38px;
   font-size: 35px;
   line-height: 1.08;
   font-weight: 950;
 }
 
-.hero-title .accent {
-  color: #ff5972;
-}
-
+.hero-title .accent { color: #ff5972; }
 .hero-desc {
   margin-top: 12px;
-  max-width: 590px;
+  max-width: 610px;
   font-size: 14px;
   line-height: 1.65;
   color: #b7c4df;
 }
 
 .badges {
-  margin-top: 24px;
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  margin-top:24px;
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
 }
 
 .badge {
-  border: 1px solid rgba(120,140,200,.22);
-  background: rgba(8,14,28,.72);
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 13px;
+  border:1px solid rgba(120,140,200,.22);
+  background:rgba(8,14,28,.72);
+  border-radius:999px;
+  padding:10px 14px;
+  font-size:13px;
 }
 
-/* Workflow */
-.workflow {
-  margin-top: 18px;
-  display: grid;
+/* Workflow cards */
+.workflow-cards {
+  margin-top:18px;
+  display:grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 14px;
+  gap:14px;
 }
 
-.card {
-  border: 1px solid rgba(120,140,200,.18);
-  background: linear-gradient(180deg, rgba(13,20,38,.92), rgba(9,15,28,.98));
-  border-radius: 18px;
-  min-height: 104px;
-  padding: 16px 18px;
+.workflow-card {
+  border:1px solid rgba(120,140,200,.18);
+  background:linear-gradient(180deg, rgba(13,20,38,.92), rgba(9,15,28,.98));
+  border-radius:18px;
+  min-height:104px;
+  padding:16px 18px;
 }
 
-.card-num {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: inline-grid;
-  place-items: center;
-  font-weight: 900;
-  margin-bottom: 10px;
-  border: 1px solid rgba(255,255,255,.16);
+.workflow-num {
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  display:inline-grid;
+  place-items:center;
+  font-weight:900;
+  margin-bottom:10px;
+  border:1px solid rgba(255,255,255,.16);
 }
 
-.c1 { background: rgba(255,104,76,.22); color: #ff8d74; }
-.c2 { background: rgba(180,85,255,.22); color: #c58cff; }
-.c3 { background: rgba(158,85,255,.22); color: #bf98ff; }
-.c4 { background: rgba(90,140,255,.22); color: #83adff; }
-.c5 { background: rgba(255,180,70,.22); color: #ffcf7f; }
-.c6 { background: rgba(80,210,200,.22); color: #7de8dc; }
+.c1 { background:rgba(255,104,76,.22); color:#ff8d74; }
+.c2 { background:rgba(180,85,255,.22); color:#c58cff; }
+.c3 { background:rgba(158,85,255,.22); color:#bf98ff; }
+.c4 { background:rgba(90,140,255,.22); color:#83adff; }
+.c5 { background:rgba(255,180,70,.22); color:#ffcf7f; }
+.c6 { background:rgba(80,210,200,.22); color:#7de8dc; }
 
-.card-title {
-  font-size: 14px;
-  font-weight: 900;
-  margin-bottom: 5px;
-}
-
-.card-sub {
-  font-size: 12px;
-  color: #93a5cb;
-  line-height: 1.45;
-}
+.workflow-card-title { font-size:14px; font-weight:900; margin-bottom:5px; }
+.workflow-card-sub { font-size:12px; color:#93a5cb; line-height:1.45; }
 
 /* Brief */
 .brief-card {
-  margin-top: 18px;
-  border: 1px solid rgba(120,140,200,.16);
-  border-radius: 18px 18px 0 0;
-  background: linear-gradient(180deg, rgba(11,19,38,.88), rgba(8,14,26,.98));
-  padding: 18px 18px 10px;
+  margin-top:18px;
+  border:1px solid rgba(120,140,200,.17);
+  border-radius:18px 18px 0 0;
+  background:linear-gradient(180deg, rgba(11,19,38,.88), rgba(8,14,26,.98));
+  padding:18px 18px 10px;
 }
 
 .brief-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
 }
 
-.brief-title {
-  font-size: 18px;
-  font-weight: 900;
-}
-
-.brief-sub {
-  font-size: 13px;
-  color: #a3b2d0;
-  margin-top: 2px;
-}
+.brief-title { font-size:18px; font-weight:900; }
+.brief-sub { font-size:13px; color:#a3b2d0; margin-top:2px; }
 
 .brief-btn {
-  border: 1px solid rgba(255,110,120,.38);
-  color: #ff8f98;
-  background: rgba(255,75,75,.06);
-  border-radius: 14px;
-  padding: 10px 14px;
-  font-weight: 800;
-  font-size: 13px;
+  border:1px solid rgba(255,110,120,.38);
+  color:#ff8f98;
+  background:rgba(255,75,75,.06);
+  border-radius:14px;
+  padding:10px 14px;
+  font-weight:800;
+  font-size:13px;
 }
 
-/* Tabs */
-.tabs {
-  margin-top: 14px;
-  display: flex;
-  gap: 26px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
-  padding-bottom: 10px;
-}
-
-.tab {
-  color: #c8d4ef;
-  font-size: 13px;
-  font-weight: 800;
-  position: relative;
-}
-
-.tab.active {
-  color: white;
-}
-
-.tab.active::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: -11px;
-  width: 100%;
-  height: 2px;
-  border-radius: 999px;
-  background: #ff586a;
-}
-
-/* Chat */
-.chat-layout {
-  margin-top: 16px;
-  display: grid;
-  grid-template-columns: 1fr 330px;
-  gap: 18px;
-}
-
-.chat {
-  border: 1px solid rgba(120,140,200,.16);
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at 70% 60%, rgba(255,85,130,.06), transparent 26%),
-    radial-gradient(circle at 35% 15%, rgba(60,120,255,.10), transparent 28%),
-    linear-gradient(180deg, rgba(12,20,40,.94), rgba(8,14,26,.98));
-  padding: 16px 18px;
-  min-height: 360px;
-}
-
-.chat-title {
-  font-size: 14px;
-  font-weight: 900;
-  margin-bottom: 4px;
-}
-
-.chat-desc {
-  font-size: 12px;
-  color: #96a8cd;
-  margin-bottom: 18px;
-}
-
-.messages {
-  min-height: 0;
-  max-height: 320px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.msg-row {
-  display: flex;
-  width: 100%;
-}
-
-.msg-row.user {
-  justify-content: flex-end;
-}
-
-.bubble {
-  max-width: 64%;
-  padding: 16px 18px;
+/* Workflow result */
+.workflow-panel {
+  margin-top: 18px;
+  border: 1px solid rgba(120,140,200,.17);
   border-radius: 20px;
-  font-size: 14px;
-  line-height: 1.7;
-  box-shadow: 0 10px 25px rgba(0,0,0,.18);
+  background: linear-gradient(180deg, rgba(11,19,38,.86), rgba(8,14,26,.98));
+  padding: 18px;
 }
 
-.bubble.user {
-  background: linear-gradient(180deg, rgba(172,56,78,.96), rgba(150,45,65,.96));
-  border: 1px solid rgba(255,110,130,.25);
-  color: #fff5f6;
-  border-top-right-radius: 10px;
+.workflow-title {
+  font-size: 22px;
+  font-weight: 950;
+  margin-bottom: 14px;
 }
 
-.bubble.assistant {
-  background:
-    radial-gradient(circle at 80% 20%, rgba(155,90,255,.10), transparent 30%),
-    linear-gradient(180deg, rgba(18,28,52,.96), rgba(12,20,36,.98));
-  border: 1px solid rgba(120,140,200,.20);
-  color: #eff5ff;
-  border-top-left-radius: 10px;
-}
-
-.assistant-wrap {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.mini-brain {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: rgba(255,70,110,.12);
-  color: #ff708a;
-  border: 1px solid rgba(255,120,150,.25);
-  flex-shrink: 0;
-  margin-top: 4px;
-}
-
-.msg-time {
-  font-size: 11px;
-  color: #7f92bc;
-  margin-top: 7px;
-}
-
-.msg-time.right {
-  text-align: right;
-}
-
-.actions {
-  margin-top: 10px;
-  color: #9fb0d6;
-  display: flex;
-  gap: 14px;
-  font-size: 12px;
-}
-
-.composer {
-  margin-top: 10px;
-  border: 1px solid rgba(120,140,200,.18);
-  border-radius: 18px;
-  background: rgba(9,16,31,.92);
-  padding: 10px 12px;
-}
-
-.composer-tip {
-  margin-top: 8px;
-  display: flex;
-  justify-content: space-between;
-  color: #798db5;
-  font-size: 11px;
-}
-
-/* Right side */
 .workflow-result {
   margin-top: 16px;
   border: 1px solid rgba(120,140,200,.16);
@@ -896,23 +802,21 @@ input:focus {
 }
 
 .workflow-result-title {
-  font-size: 16px;
-  font-weight: 900;
-  color: #ffffff;
-  margin-bottom: 10px;
+  font-size: 17px;
+  font-weight: 950;
+  margin-bottom: 8px;
 }
 
-.workflow-result-body {
-  color: #eaf1ff;
-  font-size: 14px;
-  line-height: 1.75;
+.workflow-result-note, .workflow-empty {
+  color: #91a2c0;
+  font-size: 13px;
+  margin-bottom: 12px;
 }
 
 .result-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
-  margin-top: 12px;
 }
 
 .result-card {
@@ -924,7 +828,7 @@ input:focus {
 
 .result-card-title {
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 950;
   color: #ffffff;
   margin-bottom: 10px;
 }
@@ -933,109 +837,716 @@ input:focus {
   color: #dfe8ff;
   font-size: 14px;
   line-height: 1.75;
-  white-space: pre-wrap;
 }
 
-.result-card-body ul {
-  margin-top: 6px;
-  padding-left: 20px;
-}
-
-.result-note {
-  color: #91a2c0;
-  font-size: 13px;
-  margin-top: 6px;
-}
-
-.workflow-empty {
-  color: #7f90b2;
-  font-size: 13px;
-  padding: 20px 0;
-}
-
-.side {
-  border: 1px solid rgba(120,140,200,.16);
+/* Unified online chat */
+.online-chat-shell {
+  border: 1px solid rgba(255,80,110,.42);
   border-radius: 22px;
-  background: linear-gradient(180deg, rgba(12,19,36,.94), rgba(8,14,26,.98));
-  padding: 16px;
-  min-height: 470px;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(255,80,130,.08), transparent 24%),
+    radial-gradient(circle at 85% 30%, rgba(120,90,255,.10), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.97), rgba(8,14,26,.99));
+  box-shadow: 0 18px 60px rgba(0,0,0,.32), 0 0 28px rgba(255,70,110,.08);
+  overflow: hidden;
+  padding: 0 0 12px;
 }
 
-.side-title {
-  font-size: 14px;
-  font-weight: 900;
-  margin-bottom: 14px;
-}
-
-.recent {
-  margin-top: 8px;
-  border-top: 1px solid rgba(255,255,255,.06);
-  padding-top: 10px;
-}
-
-.recent-row {
+.chat-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
   display: flex;
   justify-content: space-between;
-  color: #d7e2ff;
-  font-size: 12px;
-  padding: 10px 2px;
+  align-items: center;
 }
 
-.recent-time {
-  color: #7f93bc;
-  white-space: nowrap;
-  margin-left: 10px;
+.chat-title {
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.chat-status {
+  font-size: 12px;
+  color: #9fb0d6;
+  margin-top: 4px;
+}
+
+.online-dot {
+  display:inline-block;
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#22c55e;
+  margin-right:7px;
+  box-shadow:0 0 10px rgba(34,197,94,.55);
+}
+
+.chat-window {
+  height: 430px;
+  overflow-y: auto;
+  padding: 18px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.empty-chat {
+  height: 390px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #8fa2c7;
+}
+
+.empty-chat-icon { font-size: 34px; margin-bottom: 10px; }
+.empty-chat-title { color:white; font-weight:900; font-size:16px; }
+.empty-chat-text { font-size:13px; margin-top:6px; max-width:280px; }
+
+.chat-row {
+  display:flex;
+  gap:10px;
+  margin-bottom:16px;
+}
+
+.chat-row.user {
+  justify-content:flex-end;
+}
+
+.chat-avatar {
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:rgba(255,80,120,.15);
+  border:1px solid rgba(255,120,150,.25);
+  flex-shrink:0;
+}
+
+.chat-bubble {
+  max-width: 78%;
+  border-radius: 18px;
+  padding: 13px 15px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.chat-bubble.assistant {
+  background: linear-gradient(180deg, rgba(24,35,63,.97), rgba(15,24,44,.99));
+  border: 1px solid rgba(120,140,200,.20);
+  border-top-left-radius: 8px;
+}
+
+.chat-bubble.user {
+  background: linear-gradient(180deg, rgba(172,56,78,.96), rgba(150,45,65,.96));
+  border: 1px solid rgba(255,110,130,.25);
+  border-top-right-radius: 8px;
+}
+
+.chat-time {
+  font-size: 10.5px;
+  color: #7f92bc;
+  margin-top: 5px;
 }
 
 @media (max-width: 1400px) {
-  .workflow { grid-template-columns: repeat(3, 1fr); }
-  .chat-layout { grid-template-columns: 1fr; }
+  .workflow-cards { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 1100px) {
-  .left-rail { display: none; }
-  .hero { grid-template-columns: 1fr; }
+  .left-rail { display:none; }
+  .hero { grid-template-columns:1fr; }
+  .workflow-cards { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Floating Assistant */
+.floating-chat-shell {
+  position: fixed;
+  z-index: 9999;
+  width: 380px;
+  max-width: calc(100vw - 36px);
+  border: 1px solid rgba(255,80,110,.42);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(255,80,130,.08), transparent 24%),
+    radial-gradient(circle at 85% 30%, rgba(120,90,255,.10), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.98), rgba(8,14,26,.99));
+  box-shadow: 0 18px 70px rgba(0,0,0,.42), 0 0 32px rgba(255,70,110,.10);
+  overflow: hidden;
+}
+
+.floating-chat-shell.bottom-right { right: 24px; bottom: 24px; }
+.floating-chat-shell.bottom-left { left: 24px; bottom: 24px; }
+.floating-chat-shell.top-right { right: 24px; top: 88px; }
+.floating-chat-shell.top-left { left: 24px; top: 88px; }
+
+.floating-chat-shell.minimized .chat-window {
+  display: none;
+}
+
+.floating-chat-launcher {
+  position: fixed;
+  z-index: 9999;
+  right: 24px;
+  bottom: 24px;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  background: linear-gradient(135deg, #ff4f5f, #8c5cff);
+  border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 16px 45px rgba(0,0,0,.38);
+}
+
+.floating-chat-controls {
+  margin-top: 14px;
+  border: 1px solid rgba(120,140,200,.16);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(8,14,26,.72);
+}
+
+
+/* Professional embedded online assistant */
+.assistant-card {
+  border: 1px solid rgba(255,80,110,.42);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(255,80,130,.08), transparent 24%),
+    radial-gradient(circle at 85% 30%, rgba(120,90,255,.10), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.98), rgba(8,14,26,.99));
+  box-shadow: 0 18px 70px rgba(0,0,0,.28), 0 0 32px rgba(255,70,110,.08);
+  overflow: hidden;
+  margin-top: 0;
+}
+
+.assistant-card.minimized .chat-window {
+  display: none;
+}
+
+.assistant-card.minimized {
+  min-height: auto;
+}
+
+.chat-header {
+  padding: 15px 17px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-title {
+  font-size: 16px;
+  font-weight: 950;
+  color: #ffffff;
+}
+
+.chat-status {
+  font-size: 12px;
+  color: #9fb0d6;
+  margin-top: 4px;
+}
+
+.online-dot {
+  display:inline-block;
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#22c55e;
+  margin-right:7px;
+  box-shadow:0 0 10px rgba(34,197,94,.55);
+}
+
+.chat-header-actions {
+  color: #c8d3ee;
+  font-size: 18px;
+  letter-spacing: 8px;
+}
+
+.chat-window {
+  height: 390px;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.empty-chat {
+  height: 340px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #8fa2c7;
+}
+
+.empty-chat-icon { font-size: 34px; margin-bottom: 10px; }
+.empty-chat-title { color:white; font-weight:900; font-size:16px; }
+.empty-chat-text { font-size:13px; margin-top:6px; max-width:280px; }
+
+.chat-row {
+  display:flex;
+  gap:10px;
+  margin-bottom:16px;
+}
+
+.chat-row.user {
+  justify-content:flex-end;
+}
+
+.chat-avatar {
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:rgba(255,80,120,.15);
+  border:1px solid rgba(255,120,150,.25);
+  flex-shrink:0;
+}
+
+.chat-bubble {
+  max-width: 82%;
+  border-radius: 18px;
+  padding: 13px 15px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.chat-bubble.assistant {
+  background: linear-gradient(180deg, rgba(24,35,63,.97), rgba(15,24,44,.99));
+  border: 1px solid rgba(120,140,200,.20);
+  border-top-left-radius: 8px;
+}
+
+.chat-bubble.user {
+  background: linear-gradient(180deg, rgba(172,56,78,.96), rgba(150,45,65,.96));
+  border: 1px solid rgba(255,110,130,.25);
+  border-top-right-radius: 8px;
+}
+
+.chat-time {
+  font-size: 10.5px;
+  color: #7f92bc;
+  margin-top: 5px;
+}
+
+.chat-closed-card {
+  border: 1px solid rgba(255,80,110,.34);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255,80,130,.12), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.98), rgba(8,14,26,.99));
+  padding: 22px;
+  text-align: center;
+  box-shadow: 0 18px 70px rgba(0,0,0,.28);
+}
+
+.chat-closed-icon {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #ff4f5f, #8c5cff);
+  font-size: 26px;
+}
+
+.chat-closed-title {
+  font-size: 16px;
+  font-weight: 950;
+  color: #ffffff;
+}
+
+.chat-closed-sub {
+  color: #9fb0d6;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+
+/* Chat header icon buttons like online support widgets */
+.chat-header {
+  position: relative;
+  min-height: 58px;
+}
+
+.chat-header-actions {
+  position: absolute;
+  right: 14px;
+  top: 13px;
+  display: flex;
+  gap: 8px;
+  color: #dbe7ff;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0;
+  pointer-events: none;
+}
+
+.chat-header-actions span {
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.10);
+}
+
+/* The real Streamlit buttons are placed over the visual icons */
+.chat-control-layer {
+  height: 0;
+  position: relative;
+  z-index: 10000;
+}
+
+.chat-control-layer [data-testid="stHorizontalBlock"] {
+  position: absolute;
+  right: 12px;
+  top: -54px;
+  width: 64px;
+  display: flex;
+  gap: 7px;
+}
+
+.chat-control-layer .stButton > button {
+  width: 27px !important;
+  min-width: 27px !important;
+  height: 27px !important;
+  min-height: 27px !important;
+  padding: 0 !important;
+  border-radius: 9px !important;
+  background: rgba(255,255,255,.001) !important;
+  border: 0 !important;
+  color: transparent !important;
+  box-shadow: none !important;
+}
+
+.chat-control-layer .stButton > button:hover {
+  background: rgba(255,255,255,.10) !important;
+  border: 1px solid rgba(255,255,255,.16) !important;
+}
+
+/* Composer closer to real online chat */
+div[data-testid="stForm"] {
+  border: 1px solid rgba(120,140,200,.18) !important;
+  border-radius: 18px !important;
+  padding: 12px !important;
+  background: rgba(8,14,26,.72) !important;
+}
+
+div[data-testid="stForm"] .stTextInput input {
+  min-height: 42px !important;
+  border-radius: 14px !important;
+}
+
+div[data-testid="stForm"] .stFormSubmitButton > button {
+  background: linear-gradient(135deg, #3158ff, #2348d8) !important;
+  border: 1px solid rgba(90,130,255,.45) !important;
+  color: white !important;
+  border-radius: 14px !important;
+  min-height: 42px !important;
+}
+
+div[data-testid="stForm"] .stFormSubmitButton > button:hover {
+  filter: brightness(1.08);
+}
+
+
+/* Clean online chat widget */
+.clean-chat-card {
+  border: 1px solid rgba(255,80,110,.42);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 15% 10%, rgba(255,80,130,.08), transparent 24%),
+    radial-gradient(circle at 85% 30%, rgba(120,90,255,.10), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.98), rgba(8,14,26,.99));
+  box-shadow: 0 18px 70px rgba(0,0,0,.32), 0 0 32px rgba(255,70,110,.08);
+  overflow: hidden;
+  margin-top: 0;
+}
+
+.clean-chat-header {
+  height: 58px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.clean-chat-title {
+  font-size: 16px;
+  font-weight: 950;
+  color: #fff;
+}
+
+.clean-chat-status {
+  color: #9fb0d6;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.clean-online-dot {
+  display:inline-block;
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#22c55e;
+  margin-right:7px;
+  box-shadow:0 0 10px rgba(34,197,94,.55);
+}
+
+.clean-chat-actions {
+  display:flex;
+  gap:8px;
+}
+
+.clean-chat-actions a {
+  width:28px;
+  height:28px;
+  display:grid;
+  place-items:center;
+  border-radius:9px;
+  color:#dbe7ff !important;
+  text-decoration:none !important;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.11);
+  font-size:18px;
+  font-weight:900;
+}
+
+.clean-chat-actions a:hover {
+  background:rgba(255,255,255,.13);
+}
+
+.clean-chat-window {
+  height: 390px;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.clean-chat-card.minimized .clean-chat-window {
+  display: none;
+}
+
+.clean-empty-chat {
+  height: 340px;
+  display:grid;
+  place-items:center;
+  text-align:center;
+  color:#8fa2c7;
+}
+
+.clean-empty-icon {
+  font-size:34px;
+  margin-bottom:10px;
+}
+
+.clean-empty-title {
+  color:#fff;
+  font-weight:950;
+  font-size:16px;
+}
+
+.clean-empty-text {
+  font-size:13px;
+  margin-top:6px;
+  max-width:280px;
+}
+
+.clean-chat-row {
+  display:flex;
+  gap:10px;
+  margin-bottom:16px;
+}
+
+.clean-chat-row.user {
+  justify-content:flex-end;
+}
+
+.clean-avatar {
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:rgba(255,80,120,.15);
+  border:1px solid rgba(255,120,150,.25);
+  flex-shrink:0;
+}
+
+.clean-bubble {
+  max-width:82%;
+  border-radius:18px;
+  padding:13px 15px;
+  font-size:13.5px;
+  line-height:1.6;
+}
+
+.clean-bubble.assistant {
+  background:linear-gradient(180deg, rgba(24,35,63,.97), rgba(15,24,44,.99));
+  border:1px solid rgba(120,140,200,.20);
+  border-top-left-radius:8px;
+}
+
+.clean-bubble.user {
+  background:linear-gradient(180deg, rgba(42,86,255,.96), rgba(30,67,210,.96));
+  border:1px solid rgba(90,130,255,.35);
+  border-top-right-radius:8px;
+}
+
+.clean-time {
+  font-size:10.5px;
+  color:#7f92bc;
+  margin-top:5px;
+}
+
+.clean-closed-card {
+  border:1px solid rgba(255,80,110,.34);
+  border-radius:22px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(255,80,130,.12), transparent 28%),
+    linear-gradient(180deg, rgba(12,20,40,.98), rgba(8,14,26,.99));
+  padding:24px;
+  text-align:center;
+}
+
+.clean-closed-icon {
+  width:58px;
+  height:58px;
+  margin:0 auto 12px;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(135deg, #ff4f5f, #3158ff);
+  font-size:26px;
+}
+
+.clean-closed-title {
+  font-size:16px;
+  font-weight:950;
+  color:#fff;
+}
+
+.clean-closed-sub {
+  color:#9fb0d6;
+  font-size:13px;
+  margin-top:6px;
+}
+
+/* Make chat form look connected to the card */
+div[data-testid="stForm"] {
+  border:1px solid rgba(120,140,200,.18) !important;
+  border-radius:18px !important;
+  padding:12px !important;
+  background:rgba(8,14,26,.78) !important;
+  margin-top:12px !important;
+}
+
+div[data-testid="stForm"] .stTextInput input {
+  min-height:42px !important;
+  border-radius:14px !important;
+}
+
+div[data-testid="stForm"] .stFormSubmitButton > button {
+  background:linear-gradient(135deg, #3158ff, #2348d8) !important;
+  border:1px solid rgba(90,130,255,.45) !important;
+  color:white !important;
+  border-radius:14px !important;
+  min-height:42px !important;
+}
+
+.chat-small-action button {
+  min-height:34px !important;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 
-# =========================================================
-# Layout
-# =========================================================
-left, main = st.columns([0.18, 0.82], gap="large")
-
-
-# -------------------------
-# Left rail: real login/profile controls
-# -------------------------
-with left:
-    ui("""
-    <div class="left-rail">
-      <div class="brand">
-        <div class="logo">🧠</div>
-        <div>
-          <div class="brand-title">LLM ASSISTANT</div>
-          <div class="brand-sub">for Software Engineering</div>
+# -----------------------------
+# Login gate
+# -----------------------------
+if not st.session_state.logged_in:
+    render_html(
+        """
+        <div class="login-screen">
+          <div class="login-card-screen">
+            <div class="login-logo">🧠</div>
+            <div class="login-title">LLM Assistant Login</div>
+            <div class="login-sub">
+              Sign in to open the software engineering assistant dashboard.
+              Default local credentials are <b>admin / admin</b>.
+            </div>
+          </div>
         </div>
-      </div>
+        """
+    )
 
-      <div class="nav">⌘ Dashboard</div>
+    a, b, c = st.columns([1, 1.2, 1])
+    with b:
+        with st.form("main_login_form"):
+            username = st.text_input("Username", placeholder="admin")
+            password = st.text_input("Password", type="password", placeholder="admin")
+            if st.form_submit_button("Login", use_container_width=True):
+                if login_user(username, password):
+                    st.rerun()
+    st.stop()
 
-      <div class="section">History</div>
-      <div class="search">Search conversations 🔎</div>
-      <div class="history active"><div class="history-title">Alzheimer's Safety App</div><span>2m ago</span></div>
-      <div class="history"><div class="history-title">Medication Reminder System</div><span>1d ago</span></div>
-      <div class="history"><div class="history-title">Telehealth Platform</div><span>2d ago</span></div>
-      <div class="history"><div class="history-title">E-Commerce Checkout</div><span>3d ago</span></div>
-      <div class="history"><div class="history-title">IoT Device Monitor</div><span>4d ago</span></div>
-    </div>
-    """)
 
-    if st.session_state.logged_in:
-        ui(f"""
+# -----------------------------
+# Sidebar
+# -----------------------------
+left, main = st.columns([0.19, 0.81], gap="large")
+
+with left:
+    history_blocks = []
+    if st.session_state.project_history:
+        for idx, item in enumerate(st.session_state.project_history[:6]):
+            klass = "history active" if idx == 0 else "history"
+            history_blocks.append(
+                f"""
+                <div class="{klass}">
+                  <div class="history-title">{html.escape(item.get("title", "Project Brief"))}</div>
+                  <span>{html.escape(item.get("time", ""))}</span>
+                </div>
+                """
+            )
+    else:
+        history_blocks.append(
+            """
+            <div class="history active">
+              <div class="history-title">No saved project brief yet</div>
+              <span>Run a workflow to save one</span>
+            </div>
+            """
+        )
+
+    render_html(
+        f"""
+        <div class="left-rail">
+          <div class="brand">
+            <div class="logo">🧠</div>
+            <div>
+              <div class="brand-title">LLM ASSISTANT</div>
+              <div class="brand-sub">for Software Engineering</div>
+            </div>
+          </div>
+
+          <div class="nav">⌘ Dashboard</div>
+
+          <div class="section">Project Brief History</div>
+          <div class="search">Saved only from Project Brief 🔎</div>
+          {''.join(history_blocks)}
+        </div>
+        """
+    )
+
+    render_html(
+        f"""
         <div class="profile">
           <div class="avatar">{html.escape(st.session_state.user_name[:1].upper())}</div>
           <div>
@@ -1043,98 +1554,87 @@ with left:
             <div class="profile-mail">{html.escape(st.session_state.user_email)}</div>
           </div>
         </div>
-        """)
-        if st.button("Logout", use_container_width=True):
-            st.session_state.logged_in = False
-            st.rerun()
-    else:
-        ui("""
-        <div class="profile">
-          <div class="avatar">?</div>
-          <div>
-            <div class="profile-name">Guest User</div>
-            <div class="profile-mail">Not logged in</div>
-          </div>
-        </div>
-        """)
-        if st.button("Login", use_container_width=True):
-            st.session_state.login_open = not st.session_state.login_open
-
-        if st.session_state.login_open:
-            with st.form("login_form", clear_on_submit=False):
-                email = st.text_input("Email", placeholder="alex@example.com")
-                password = st.text_input("Password", placeholder="password", type="password")
-                login = st.form_submit_button("Sign in", use_container_width=True)
-                if login:
-                    login_user(email, password)
-                    st.rerun()
+        """
+    )
+    if st.button("Logout", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.user_name = "Guest User"
+        st.session_state.user_email = "Not logged in"
+        st.rerun()
 
 
-# -------------------------
-# Main area
-# -------------------------
+# -----------------------------
+# Main UI
+# -----------------------------
 with main:
-    provider = html.escape(os.getenv("LLM_PROVIDER", "OpenAI"))
-    model = html.escape(os.getenv("OPENAI_MODEL", "DeepSeek-V3.1"))
+    provider = html.escape(os.getenv("LLM_PROVIDER", "openai"))
+    model = html.escape(os.getenv("OPENAI_MODEL", "deepseek-ai/DeepSeek-V3.1"))
 
-    ui(f"""
-    <section class="hero">
-      <div class="hero-left">
-        <div class="brain-glow"><div class="brain">🧠</div></div>
-      </div>
-      <div class="hero-right">
-        <div class="hero-icons">☼ 🔔</div>
-        <div class="new-project">⊕ New Project</div>
-        <div class="hero-title"><span class="accent">LLM-Powered</span><br>Virtual Assistant for<br>Software Engineering</div>
-        <div class="hero-desc">
-          Generate requirements, review quality, create test cases, suggest architecture,
-          analyze code, and identify defensive security risks using a structured AI workflow.
-        </div>
-        <div class="badges">
-          <div class="badge">🟢 Provider: {provider}</div>
-          <div class="badge">🟣 Model: {model}</div>
-          <div class="badge">🟠 Workflow: Human-in-the-loop SE</div>
-        </div>
-      </div>
-    </section>
+    render_html(
+        f"""
+        <section class="hero">
+          <div class="hero-left">
+            <div class="brain">🧠</div>
+          </div>
+          <div class="hero-right">
+            <div class="hero-icons">☼ 🔔</div>
+            <div class="hero-title">
+              <span class="accent">LLM-Powered</span><br>
+              Virtual Assistant for<br>
+              Software Engineering
+            </div>
+            <div class="hero-desc">
+              Generate requirements, review quality, create test cases, suggest architecture,
+              analyze code, and identify defensive security risks using a structured AI workflow.
+            </div>
+            <div class="badges">
+              <div class="badge">🟢 Provider: {provider}</div>
+              <div class="badge">🟣 Model: {model}</div>
+              <div class="badge">🟠 Workflow: Human-in-the-loop SE</div>
+            </div>
+          </div>
+        </section>
 
-    <section class="workflow">
-      <div class="card"><div class="card-num c1">1</div><div class="card-title">Requirements</div><div class="card-sub">Generate FR/NFR</div></div>
-      <div class="card"><div class="card-num c2">2</div><div class="card-title">Review</div><div class="card-sub">Find ambiguity & missing criteria</div></div>
-      <div class="card"><div class="card-num c3">3</div><div class="card-title">Tests</div><div class="card-sub">Create structured test cases</div></div>
-      <div class="card"><div class="card-num c4">4</div><div class="card-title">Architecture</div><div class="card-sub">Suggest components & data flow</div></div>
-      <div class="card"><div class="card-num c5">5</div><div class="card-title">Code</div><div class="card-sub">Review code quality and security</div></div>
-      <div class="card"><div class="card-num c6">6</div><div class="card-title">Security</div><div class="card-sub">Generate defensive risk scenarios</div></div>
-    </section>
+        <section class="workflow-cards">
+          <div class="workflow-card"><div class="workflow-num c1">1</div><div class="workflow-card-title">Requirements</div><div class="workflow-card-sub">Generate FR/NFR</div></div>
+          <div class="workflow-card"><div class="workflow-num c2">2</div><div class="workflow-card-title">Review</div><div class="workflow-card-sub">Find ambiguity & missing criteria</div></div>
+          <div class="workflow-card"><div class="workflow-num c3">3</div><div class="workflow-card-title">Tests</div><div class="workflow-card-sub">Create structured test cases</div></div>
+          <div class="workflow-card"><div class="workflow-num c4">4</div><div class="workflow-card-title">Architecture</div><div class="workflow-card-sub">Suggest components & data flow</div></div>
+          <div class="workflow-card"><div class="workflow-num c5">5</div><div class="workflow-card-title">Code</div><div class="workflow-card-sub">Review code quality and security</div></div>
+          <div class="workflow-card"><div class="workflow-num c6">6</div><div class="workflow-card-title">Security</div><div class="workflow-card-sub">Generate defensive risk scenarios</div></div>
+        </section>
 
-    <section class="brief-card">
-      <div class="brief-head">
-        <div>
-          <div class="brief-title">Project Brief ⓘ</div>
-          <div class="brief-sub">Describe the software system</div>
-        </div>
-        <div class="brief-btn">📄 Detailed project brief</div>
-      </div>
-    </section>
-    """)
+        <section class="brief-card">
+          <div class="brief-head">
+            <div>
+              <div class="brief-title">Project Brief ⓘ</div>
+              <div class="brief-sub">Describe the software system</div>
+            </div>
+            <div class="brief-btn">📄 Detailed project brief</div>
+          </div>
+        </section>
+        """
+    )
 
     st.text_area(
         "Project Brief",
         key="project_brief",
-        height=86,
+        height=88,
         placeholder="Describe your software project here...",
         label_visibility="collapsed",
     )
 
-
-
-
-    st.markdown("### AI Workflow")
+    render_html(
+        """
+        <section class="workflow-panel">
+          <div class="workflow-title">AI Workflow</div>
+        </section>
+        """
+    )
 
     action = st.radio(
-        "Choose action",
+        "Choose workflow",
         [
-            "General Chat",
             "Requirements",
             "Review",
             "Test Cases",
@@ -1147,220 +1647,126 @@ with main:
     )
 
     if st.button("Run AI workflow", use_container_width=True):
-        brief = st.session_state.get("project_brief", "").strip()
+        run_workflow(action, st.session_state.project_brief)
+        st.rerun()
 
-        if action != "General Chat" and not brief:
-            st.warning("Write a project brief first.")
-        else:
-            if action == "Requirements":
-                prompt = f"""Generate professional software requirements for this project brief:
+    render_workflow_result()
 
-{brief}
+    lower_left, chat_col = st.columns([0.68, 0.32], gap="large")
 
-Return the answer in clear presentation format with these exact headings:
-## Assumptions
-## Clarification Questions
-## Functional Requirements
-## Non-Functional Requirements
-## Risks
-
-Do not return raw JSON. Use concise professional bullet points."""
-
-            elif action == "Review":
-                prompt = f"""Review this project brief or requirements:
-
-{brief}
-
-Find:
-- Ambiguity
-- Missing acceptance criteria
-- Security/privacy gaps
-- Contradictions
-- Unverifiable statements
-
-Return:
-- Review summary
-- Issues
-- Recommendations
-- Improved requirements"""
-
-            elif action == "Test Cases":
-                prompt = f"""Generate professional test cases for this project:
-
-{brief}
-
-Return:
-- Test case ID
-- Priority
-- Preconditions
-- Steps
-- Expected result
-- Requirement covered"""
-
-            elif action == "Architecture":
-                prompt = f"""Suggest a high-level software architecture for this project:
-
-{brief}
-
-Return:
-- Architecture style
-- Components
-- Data flow
-- Technology stack
-- Deployment view
-- Security considerations"""
-
-            elif action == "Code Analysis":
-                prompt = f"""Analyze this code or technical description:
-
-{brief}
-
-Return:
-- Summary
-- Detected language/technology
-- Quality findings
-- Security findings
-- Recommended improvements"""
-
-            elif action == "Security":
-                prompt = f"""Generate defensive security and unsafe scenario analysis for this project:
-
-{brief}
-
-Return:
-- Potential abuse cases
-- Security risks
-- Privacy risks
-- Mitigations
-- Validation tests"""
-
-            else:
-                prompt = brief or "How can I improve this software engineering project?"
-
-            with st.spinner("Running workflow..."):
-                result = ask_ai(prompt)
-
-            st.session_state.workflow_title = action
-            st.session_state.workflow_result = result
-            st.rerun()
-
-
-
-    if st.session_state.get("workflow_result"):
-        render_workflow_cards(
-            st.session_state.get("workflow_title", "AI Output"),
-            st.session_state.workflow_result,
+    with lower_left:
+        render_html(
+            """
+            <section class="workflow-result">
+              <div class="workflow-result-title">Project Workspace</div>
+              <div class="workflow-empty">
+                Workflow outputs are separated from chat. Use the assistant panel on the right for quick questions.
+              </div>
+            </section>
+            """
         )
-    else:
-        ui("""
-        <section class="workflow-result">
-          <div class="workflow-result-title">Workflow Result</div>
-          <div class="workflow-empty">Run Requirements, Review, Test Cases, Architecture, Code Analysis, or Security to see structured output here.</div>
-        </section>
-        """)
-
-    chat_col, side_col = st.columns([0.74, 0.26], gap="large")
 
     with chat_col:
-        message_blocks = []
+        if st.session_state.get("chat_closed"):
+            render_html(
+                """
+                <section class="clean-closed-card">
+                  <div class="clean-closed-icon">??</div>
+                  <div class="clean-closed-title">AI Chat is closed</div>
+                  <div class="clean-closed-sub">Click below to open the online assistant again.</div>
+                </section>
+                """
+            )
+            render_html('<a href="?chat_action=open" style="display:block;margin-top:12px;text-align:center;border:1px solid rgba(120,140,200,.25);border-radius:14px;padding:12px;color:white;text-decoration:none;background:rgba(12,20,40,.92);font-weight:800;">Open AI Chat</a>')
 
-        if not st.session_state.chat_messages:
-            message_blocks.append("""
-            <div style="height: 230px; display: flex; align-items: center; justify-content: center; color: #7f90b2; text-align: center;">
-              <div>
-                <div style="font-size: 34px; margin-bottom: 10px;">??</div>
-                <div style="font-size: 16px; font-weight: 800; color: #dce7ff;">Start a new AI conversation</div>
-                <div style="font-size: 13px; margin-top: 6px;">Ask about requirements, testing, architecture, code review, or project documentation.</div>
-              </div>
-            </div>
-            """)
+        else:
+            message_blocks: list[str] = []
 
-        for msg in st.session_state.chat_messages[-8:]:
-            role = msg.get("role", "assistant")
-            content = html.escape(msg.get("content", "")).replace("\\n", "<br>")
-            t = html.escape(msg.get("time", ""))
-
-            if role == "user":
-                message_blocks.append(f"""
-                <div class="msg-row user">
-                  <div>
-                    <div class="bubble user">{content}</div>
-                    <div class="msg-time right">{t} ??</div>
-                  </div>
-                </div>
-                """)
-            else:
-                message_blocks.append(f"""
-                <div class="msg-row assistant">
-                  <div class="assistant-wrap">
-                    <div class="mini-brain">??</div>
-                    <div>
-                      <div class="bubble assistant">
-                        {content}
-                        <div class="actions">?? ?? ??</div>
+            if not st.session_state.chat_messages:
+                message_blocks.append(
+                    """
+                    <div class="clean-empty-chat">
+                      <div>
+                        <div class="clean-empty-icon">??</div>
+                        <div class="clean-empty-title">Online AI Chat</div>
+                        <div class="clean-empty-text">
+                          Ask quick questions. The chat scrolls inside this panel.
+                        </div>
                       </div>
-                      <div class="msg-time">{t}</div>
+                    </div>
+                    """
+                )
+            else:
+                for msg in st.session_state.chat_messages[-12:]:
+                    role = msg.get("role", "assistant")
+                    content = html.escape(msg.get("content", "")).replace("\n", "<br>")
+                    time_text = html.escape(msg.get("time", ""))
+
+                    if role == "user":
+                        message_blocks.append(
+                            f"""
+                            <div class="clean-chat-row user">
+                              <div>
+                                <div class="clean-bubble user">{content}</div>
+                                <div class="clean-time" style="text-align:right;">{time_text} ??</div>
+                              </div>
+                            </div>
+                            """
+                        )
+                    else:
+                        message_blocks.append(
+                            f"""
+                            <div class="clean-chat-row">
+                              <div class="clean-avatar">??</div>
+                              <div>
+                                <div class="clean-bubble assistant">{content}</div>
+                                <div class="clean-time">{time_text}</div>
+                              </div>
+                            </div>
+                            """
+                        )
+
+            minimized_class = " minimized" if st.session_state.get("chat_minimized") else ""
+
+            render_html(
+                f"""
+                <section class="clean-chat-card{minimized_class}">
+                  <div class="clean-chat-header">
+                    <div>
+                      <div class="clean-chat-title">AI Chat</div>
+                      <div class="clean-chat-status"><span class="clean-online-dot"></span>Online</div>
+                    </div>
+                    <div class="clean-chat-actions">
+                      <a href="?chat_action=toggle" title="Minimize or restore">?</a>
+                      <a href="?chat_action=close" title="Close chat">?</a>
                     </div>
                   </div>
-                </div>
-                """)
-
-        ui(f"""
-        <section class="chat">
-          <div class="chat-title">General AI Chat</div>
-          <div class="chat-desc">Ask general questions, request explanations, translations, or SE guidance.</div>
-          <div class="messages">
-            {''.join(message_blocks)}
-          </div>
-        </section>
-        """)
-
-        ui('<div class="composer">')
-        with st.form("chat_form", clear_on_submit=True):
-            prompt = st.text_input(
-                "Ask",
-                placeholder="Ask anything about the project or software engineering...",
-                label_visibility="collapsed",
+                  <div class="clean-chat-window">
+                    {''.join(message_blocks)}
+                  </div>
+                </section>
+                """
             )
 
-            send = st.form_submit_button("Send", use_container_width=True)
+            if not st.session_state.get("chat_minimized"):
+                with st.form("online_chat_form", clear_on_submit=True):
+                    chat_prompt = st.text_input(
+                        "Online chat",
+                        placeholder="Type your message...",
+                        label_visibility="collapsed",
+                    )
+                    sent = st.form_submit_button("? Send", use_container_width=True)
 
-            if send and prompt.strip():
-                submit_prompt(prompt)
-                st.rerun()
+                    if sent and chat_prompt.strip():
+                        submit_chat(chat_prompt)
+                        st.rerun()
 
-        ui("""
-          <div class="composer-tip">
-            <div>Tip: write your message and press Send</div>
-            <div>Real AI chat connected here</div>
-          </div>
-        </div>
-        """)
+                if st.button("Clear chat", use_container_width=True):
+                    st.session_state.chat_messages = []
+                    st.rerun()
 
-    with side_col:
-        ui("""
-        <aside class="side">
-          <div class="side-title">✨ Suggestions</div>
-        """)
-
-        suggestions = [
-            "List the functional requirements",
-            "Identify potential risks",
-            "Suggest system architecture",
-            "Create test cases for login",
-            "Review data privacy concerns",
-        ]
-        for idx, suggestion in enumerate(suggestions):
-            if st.button(f"{suggestion}  →", key=f"suggestion_{idx}", use_container_width=True):
-                submit_prompt(suggestion)
-                st.rerun()
-
-        ui("""
-          <div class="side-title" style="margin-top:18px;">◔ Recent actions</div>
-          <div class="recent">
-            <div class="recent-row"><span>Explain authentication flow</span><span class="recent-time">2m ago</span></div>
-            <div class="recent-row"><span>Translate feature spec</span><span class="recent-time">1h ago</span></div>
-            <div class="recent-row"><span>Generate test cases for API</span><span class="recent-time">Yesterday</span></div>
-          </div>
-        </aside>
-        """)
+                if st.button("Save chat", use_container_width=True):
+                    st.toast(
+                        f"Saved {len(st.session_state.chat_history)} chat item(s) in session.",
+                        icon="?",
+                    )
