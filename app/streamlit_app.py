@@ -1749,9 +1749,12 @@ with main:
 
     if run_clicked:
         brief = st.session_state.get("project_brief", "").strip()
+        st.session_state["workflow_last_clicked"] = True
+        st.session_state["workflow_last_action"] = action
 
         if not brief:
-            st.warning("Please write a Project Brief before running the workflow.")
+            st.session_state.workflow_result = ""
+            st.error("Please write a Project Brief before running the workflow.")
         else:
             try:
                 with st.spinner(f"Running {action} workflow..."):
@@ -1760,13 +1763,25 @@ with main:
                 if st.session_state.get("workflow_result", "").strip():
                     st.success(f"{action} workflow completed.")
                 else:
-                    st.warning("Workflow finished, but no output was returned.")
+                    st.warning("Workflow clicked, but no output was returned by the AI/backend.")
 
             except Exception as e:
                 st.session_state.workflow_result = f"Workflow error: {e}"
                 st.error(f"Workflow error: {e}")
 
-    render_workflow_result()
+    if st.session_state.get("workflow_result", "").strip():
+        render_workflow_result()
+    else:
+        render_html(
+            """
+            <section class="workflow-result">
+              <div class="workflow-result-title">Workflow Result</div>
+              <div class="workflow-result-sub">
+                Select a workflow module, write a Project Brief, then click Run AI workflow.
+              </div>
+            </section>
+            """
+        )
 
     lower_left, chat_col = st.columns([0.68, 0.32], gap="large")
 
