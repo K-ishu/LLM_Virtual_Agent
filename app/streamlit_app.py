@@ -1740,9 +1740,31 @@ with main:
         label_visibility="collapsed",
     )
 
-    if st.button("Run AI workflow", use_container_width=True):
-        run_workflow(action, st.session_state.project_brief)
-        st.rerun()
+    run_clicked = st.button(
+        "Run AI workflow",
+        key="run_ai_workflow_main_button",
+        type="primary",
+        use_container_width=True,
+    )
+
+    if run_clicked:
+        brief = st.session_state.get("project_brief", "").strip()
+
+        if not brief:
+            st.warning("Please write a Project Brief before running the workflow.")
+        else:
+            try:
+                with st.spinner(f"Running {action} workflow..."):
+                    run_workflow(action, brief)
+
+                if st.session_state.get("workflow_result", "").strip():
+                    st.success(f"{action} workflow completed.")
+                else:
+                    st.warning("Workflow finished, but no output was returned.")
+
+            except Exception as e:
+                st.session_state.workflow_result = f"Workflow error: {e}"
+                st.error(f"Workflow error: {e}")
 
     render_workflow_result()
 
@@ -1889,3 +1911,6 @@ st.markdown('\n<style>\n/* FINAL ONLY: move AI Chat + its input/send upward into
 
 # final-chat-up-visible-no-question
 st.markdown('\n<style>\n/* FINAL: move chat slightly higher and make inner text visible */\n.clean-chat-card {\n  transform: translateY(-315px) !important;\n  height: 265px !important;\n  max-height: 265px !important;\n}\n\n.clean-chat-window {\n  height: 205px !important;\n  max-height: 205px !important;\n  overflow-y: auto !important;\n  display: block !important;\n  visibility: visible !important;\n}\n\n.online-chat-composer,\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) {\n  transform: translateY(-315px) !important;\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-top: 8px !important;\n}\n\n/* Make the empty chat text visible */\n.clean-empty,\n.empty-chat {\n  display: flex !important;\n  flex-direction: column !important;\n  align-items: center !important;\n  justify-content: center !important;\n  height: 150px !important;\n  text-align: center !important;\n  opacity: 1 !important;\n  visibility: visible !important;\n}\n\n.clean-empty-title,\n.empty-chat-title {\n  display: block !important;\n  color: #ffffff !important;\n  font-size: 13px !important;\n  font-weight: 900 !important;\n  margin-bottom: 6px !important;\n}\n\n.clean-empty-text,\n.empty-chat-text {\n  display: block !important;\n  color: #9fb0d6 !important;\n  font-size: 10px !important;\n  line-height: 1.45 !important;\n  max-width: 190px !important;\n}\n\n/* Remove any leftover standalone question marks around chat */\n.clean-avatar,\n.clean-empty-icon,\n.empty-chat-icon,\n.mini-brain {\n  display: none !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) input {\n  width: 100% !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) button {\n  width: 100% !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+# final-workflow-real-button
+st.markdown('\n<style>\n/* Make Run AI workflow look and behave like a real button */\nbutton[kind="primary"],\ndiv[data-testid="stButton"] button {\n  cursor: pointer !important;\n  pointer-events: auto !important;\n}\n\ndiv[data-testid="stButton"] button:has(div p),\ndiv[data-testid="stButton"] button:has(p) {\n  min-height: 40px !important;\n  height: 40px !important;\n  border-radius: 12px !important;\n  font-size: 13px !important;\n  font-weight: 900 !important;\n}\n\n/* Stronger visual only for primary workflow button */\nbutton[kind="primary"] {\n  background: linear-gradient(135deg, #3158ff, #ff4f6d) !important;\n  border: 1px solid rgba(255,255,255,.18) !important;\n  color: white !important;\n  box-shadow: 0 10px 28px rgba(49,88,255,.22) !important;\n}\n\nbutton[kind="primary"]:hover {\n  transform: translateY(-1px) !important;\n  filter: brightness(1.08) !important;\n}\n</style>\n', unsafe_allow_html=True)
