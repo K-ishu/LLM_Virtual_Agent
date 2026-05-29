@@ -59,7 +59,7 @@ if chat_action == "toggle":
     st.query_params.clear()
     st.rerun()
 elif chat_action == "close":
-    st.session_state.chat_closed = True
+    st.session_state.chat_closed = False
     st.query_params.clear()
     st.rerun()
 elif chat_action == "open":
@@ -1228,12 +1228,7 @@ header[data-testid="stHeader"] { background: transparent !important; }
 }
 
 /* Composer closer to real online chat */
-div[data-testid="stForm"] {
-  border: 1px solid rgba(120,140,200,.18) !important;
-  border-radius: 18px !important;
-  padding: 12px !important;
-  background: rgba(8,14,26,.72) !important;
-}
+
 
 div[data-testid="stForm"] .stTextInput input {
   min-height: 42px !important;
@@ -1436,13 +1431,7 @@ div[data-testid="stForm"] .stFormSubmitButton > button:hover {
 }
 
 /* Make chat form look connected to the card */
-div[data-testid="stForm"] {
-  border:1px solid rgba(120,140,200,.18) !important;
-  border-radius:18px !important;
-  padding:12px !important;
-  background:rgba(8,14,26,.78) !important;
-  margin-top:12px !important;
-}
+
 
 div[data-testid="stForm"] .stTextInput input {
   min-height:42px !important;
@@ -1466,6 +1455,37 @@ div[data-testid="stForm"] .stFormSubmitButton > button {
     unsafe_allow_html=True,
 )
 
+
+
+# final-safe-url-actions
+try:
+    action = st.query_params.get("chat_action", "")
+    ui_action = st.query_params.get("ui_action", "")
+except Exception:
+    action = ""
+    ui_action = ""
+
+if action == "toggle":
+    st.session_state.chat_minimized = not st.session_state.get("chat_minimized", False)
+    st.query_params.clear()
+    st.rerun()
+
+if action == "close":
+    st.session_state.chat_closed = False
+    st.query_params.clear()
+    st.rerun()
+
+if action == "open":
+    st.session_state.chat_closed = False
+    st.session_state.chat_minimized = False
+    st.query_params.clear()
+    st.rerun()
+
+if ui_action == "theme":
+    st.session_state.light_mode = not st.session_state.get("light_mode", False)
+    st.query_params.clear()
+    st.rerun()
+# end-final-safe-url-actions
 
 # -----------------------------
 # Login gate
@@ -1491,18 +1511,20 @@ if not st.session_state.logged_in:
         with st.form("main_login_form"):
             username = st.text_input("Username", placeholder="admin")
             password = st.text_input("Password", type="password", placeholder="admin")
-            if st.form_submit_button("Login", use_container_width=True):
-                if login_user(username, password):
+            submitted = st.form_submit_button("Login", use_container_width=True)
+            if submitted:
+                if username.strip() == "admin" and password.strip() == "admin":
+                    st.session_state.logged_in = True
+                    st.session_state.authenticated = True
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = "admin"
+                    st.session_state.user_email = "admin@local"
                     st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+
     st.stop()
 
-
-# -----------------------------
-# Sidebar
-# -----------------------------
-left, main = st.columns([0.19, 0.81], gap="large")
-
-with left:
     history_blocks = []
     if st.session_state.project_history:
         for idx, item in enumerate(st.session_state.project_history[:6]):
@@ -1539,33 +1561,105 @@ with left:
           <div class="nav">⌘ Dashboard</div>
 
           <div class="section">Project Brief History</div>
-          <div class="search">Saved only from Project Brief 🔎</div>
-          {''.join(history_blocks)}
+{''.join(history_blocks)}
         </div>
         """
     )
 
-    render_html(
-        f"""
-        <div class="profile">
-          <div class="avatar">{html.escape(st.session_state.user_name[:1].upper())}</div>
-          <div>
-            <div class="profile-name">{html.escape(st.session_state.user_name)}</div>
-            <div class="profile-mail">{html.escape(st.session_state.user_email)}</div>
-          </div>
-        </div>
-        """
-    )
-    if st.button("Logout", use_container_width=True):
-        st.session_state.logged_in = False
-        st.session_state.user_name = "Guest User"
-        st.session_state.user_email = "Not logged in"
-        st.rerun()
 
+
+    if st.button("Save Project Brief", key="save_project_brief_sidebar", use_container_width=True):
+        if st.session_state.get("project_brief", "").strip():
+            save_project_history()
+            st.toast("Project brief saved.", icon="?")
+            st.rerun()
+        else:
+            st.warning("Write a Project Brief first.")
 
 # -----------------------------
 # Main UI
 # -----------------------------
+left, main = st.columns([0.22, 0.78], gap="large")
+
+with left:
+    render_html(
+        """
+        <aside class="left-rail">
+            <div class="brand">
+                <div class="brand-icon">AI</div>
+                <div>
+                    <div class="brand-title">LLM ASSISTANT</div>
+                    <div class="brand-sub">for Software Engineering</div>
+                </div>
+            </div>
+
+            <div class="nav nav-active">Dashboard</div>
+
+            <div class="section">PROJECT BRIEF HISTORY</div>
+        </aside>
+        """
+    )
+
+    history_query = st.text_input(
+        "Project Brief History Search",
+        key="history_search",
+        placeholder="Search saved briefs...",
+        label_visibility="collapsed",
+    )
+
+    history_query_clean = history_query.strip().lower()
+    project_history_items = st.session_state.get("project_history", [])
+
+    if history_query_clean:
+        project_history_items = [
+            item for item in project_history_items
+            if history_query_clean in item.get("title", "").lower()
+            or history_query_clean in item.get("brief", "").lower()
+        ]
+
+    if project_history_items:
+        cards_html = ""
+        for item in project_history_items[:6]:
+            title = html.escape(item.get("title", "Saved Project Brief"))
+            brief = html.escape(item.get("brief", ""))
+            time_label = html.escape(item.get("time", "recent"))
+            preview = brief[:85] + ("..." if len(brief) > 85 else "")
+            cards_html += f"""
+            <div class="history active">
+                <div class="history-title">{title}</div>
+                <span>{preview}</span>
+                <span>{time_label}</span>
+            </div>
+            """
+    else:
+        cards_html = """
+        <div class="history active">
+            <div class="history-title">No saved project brief yet</div>
+            <span>Run a workflow to save one</span>
+        </div>
+        """
+
+    render_html(f"""<div class="history-wrap">{cards_html}</div>""")
+
+    render_html(
+        f"""
+        <div class="profile">
+            <div class="avatar">{html.escape(st.session_state.get("user_name", "A")[:1].upper())}</div>
+            <div>
+                <div class="profile-name">{html.escape(st.session_state.get("user_name", "admin"))}</div>
+                <div class="profile-mail">{html.escape(st.session_state.get("user_email", "admin@local"))}</div>
+            </div>
+        </div>
+        """
+    )
+
+    if st.button("Logout", key="sidebar_logout_btn_clean", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.authenticated = False
+        st.session_state.user_name = "Guest User"
+        st.session_state.user_email = "Not logged in"
+        st.rerun()
+
 with main:
     provider = html.escape(os.getenv("LLM_PROVIDER", "openai"))
     model = html.escape(os.getenv("OPENAI_MODEL", "deepseek-ai/DeepSeek-V3.1"))
@@ -1577,7 +1671,7 @@ with main:
             <div class="brain">🧠</div>
           </div>
           <div class="hero-right">
-            <div class="hero-icons">☼ 🔔</div>
+            <div class="hero-icons"><a class="theme-link" href="?ui_action=theme" title="Toggle theme">Theme</a></div>
             <div class="hero-title">
               <span class="accent">LLM-Powered</span><br>
               Virtual Assistant for<br>
@@ -1655,118 +1749,143 @@ with main:
     lower_left, chat_col = st.columns([0.68, 0.32], gap="large")
 
     with lower_left:
-        render_html(
-            """
-            <section class="workflow-result">
-              <div class="workflow-result-title">Project Workspace</div>
-              <div class="workflow-empty">
-                Workflow outputs are separated from chat. Use the assistant panel on the right for quick questions.
-              </div>
-            </section>
-            """
-        )
+        pass
 
     with chat_col:
-        if st.session_state.get("chat_closed"):
-            render_html(
-                """
-                <section class="clean-closed-card">
-                  <div class="clean-closed-icon">??</div>
-                  <div class="clean-closed-title">AI Chat is closed</div>
-                  <div class="clean-closed-sub">Click below to open the online assistant again.</div>
-                </section>
-                """
-            )
-            render_html('<a href="?chat_action=open" style="display:block;margin-top:12px;text-align:center;border:1px solid rgba(120,140,200,.25);border-radius:14px;padding:12px;color:white;text-decoration:none;background:rgba(12,20,40,.92);font-weight:800;">Open AI Chat</a>')
+        pass
 
-        else:
-            message_blocks: list[str] = []
+    
+# final-force-chat-visible
+st.session_state.chat_closed = False
+if "chat_minimized" not in st.session_state:
+    st.session_state.chat_minimized = False
+# end-final-force-chat-visible
 
-            if not st.session_state.chat_messages:
+render_html(
+    """
+    <a class="chat-reopen-bubble" href="?chat_action=open" title="Open AI Chat"></a>
+    """
+)
+
+if st.session_state.get("chat_closed"):
+    render_html(
+        """
+        <section class="clean-closed-card">
+          <div class="clean-closed-icon"></div>
+          <div class="clean-closed-title">AI Chat is closed</div>
+          <div class="clean-closed-sub">Click below to open the online assistant again.</div>
+        </section>
+        """
+    )
+    render_html('<a href="?chat_action=open" style="display:block;margin-top:12px;text-align:center;border:1px solid rgba(120,140,200,.25);border-radius:14px;padding:12px;color:white;text-decoration:none;background:rgba(12,20,40,.92);font-weight:800;">Open AI Chat</a>')
+
+else:
+    message_blocks: list[str] = []
+
+    if not st.session_state.chat_messages:
+        message_blocks.append(
+            """
+            <div class="clean-empty-chat">
+              <div>
+                <div class="clean-empty-icon">&#128172;</div>
+                <div class="clean-empty-title">Online AI Chat</div>
+                <div class="clean-empty-text">
+                  Ask quick questions. The chat scrolls inside this panel.
+                </div>
+              </div>
+            </div>
+            """
+        )
+    else:
+        for msg in st.session_state.chat_messages[-12:]:
+            role = msg.get("role", "assistant")
+            content = html.escape(msg.get("content", "")).replace("\n", "<br>")
+            time_text = html.escape(msg.get("time", ""))
+
+            if role == "user":
                 message_blocks.append(
-                    """
-                    <div class="clean-empty-chat">
+                    f"""
+                    <div class="clean-chat-row user">
                       <div>
-                        <div class="clean-empty-icon">??</div>
-                        <div class="clean-empty-title">Online AI Chat</div>
-                        <div class="clean-empty-text">
-                          Ask quick questions. The chat scrolls inside this panel.
-                        </div>
+                        <div class="clean-bubble user">{content}</div>
+                        <div class="clean-time" style="text-align:right;">{time_text} ??</div>
                       </div>
                     </div>
                     """
                 )
             else:
-                for msg in st.session_state.chat_messages[-12:]:
-                    role = msg.get("role", "assistant")
-                    content = html.escape(msg.get("content", "")).replace("\n", "<br>")
-                    time_text = html.escape(msg.get("time", ""))
-
-                    if role == "user":
-                        message_blocks.append(
-                            f"""
-                            <div class="clean-chat-row user">
-                              <div>
-                                <div class="clean-bubble user">{content}</div>
-                                <div class="clean-time" style="text-align:right;">{time_text} ??</div>
-                              </div>
-                            </div>
-                            """
-                        )
-                    else:
-                        message_blocks.append(
-                            f"""
-                            <div class="clean-chat-row">
-                              <div class="clean-avatar">??</div>
-                              <div>
-                                <div class="clean-bubble assistant">{content}</div>
-                                <div class="clean-time">{time_text}</div>
-                              </div>
-                            </div>
-                            """
-                        )
-
-            minimized_class = " minimized" if st.session_state.get("chat_minimized") else ""
-
-            render_html(
-                f"""
-                <section class="clean-chat-card{minimized_class}">
-                  <div class="clean-chat-header">
-                    <div>
-                      <div class="clean-chat-title">AI Chat</div>
-                      <div class="clean-chat-status"><span class="clean-online-dot"></span>Online</div>
+                message_blocks.append(
+                    f"""
+                    <div class="clean-chat-row">
+                      <div class="clean-avatar">AI</div>
+                      <div>
+                        <div class="clean-bubble assistant">{content}</div>
+                        <div class="clean-time">{time_text}</div>
+                      </div>
                     </div>
-                    <div class="clean-chat-actions">
-                      <a href="?chat_action=toggle" title="Minimize or restore">?</a>
-                      <a href="?chat_action=close" title="Close chat">?</a>
-                    </div>
-                  </div>
-                  <div class="clean-chat-window">
-                    {''.join(message_blocks)}
-                  </div>
-                </section>
-                """
+                    """
+                )
+
+    minimized_class = " minimized" if st.session_state.get("chat_minimized") else ""
+
+    render_html(
+        f"""
+        <section class="clean-chat-card{minimized_class}">
+          <div class="clean-chat-header">
+            <div>
+              <div class="clean-chat-title">AI Chat</div>
+              <div class="clean-chat-status"><span class="clean-online-dot"></span>Online</div>
+            </div>
+            <div class="clean-chat-actions"><a href="?chat_action=toggle" title="Minimize or restore chat">&minus;</a><a href="?chat_action=close" title="Close chat">&times;</a></div>
+          </div>
+          <div class="clean-chat-window">
+            {''.join(message_blocks)}
+          </div>
+        </section>
+        """
+    )
+
+    if not st.session_state.get("chat_minimized"):
+        with st.form("online_chat_form", clear_on_submit=True):
+            chat_prompt = st.text_input(
+                "Online chat",
+                placeholder="Type your message...",
+                label_visibility="collapsed",
             )
+            sent = st.form_submit_button("Send", use_container_width=True)
 
-            if not st.session_state.get("chat_minimized"):
-                with st.form("online_chat_form", clear_on_submit=True):
-                    chat_prompt = st.text_input(
-                        "Online chat",
-                        placeholder="Type your message...",
-                        label_visibility="collapsed",
-                    )
-                    sent = st.form_submit_button("? Send", use_container_width=True)
+            if sent and chat_prompt.strip():
+                submit_chat(chat_prompt)
+                st.rerun()
 
-                    if sent and chat_prompt.strip():
-                        submit_chat(chat_prompt)
-                        st.rerun()
+# final-history-search-above-card
+st.markdown('\n<style>\n/* final history search position */\ndiv[data-testid="stTextInput"] input[placeholder="Search saved briefs..."] {\n  width: 250px !important;\n  max-width: 250px !important;\n  height: 34px !important;\n  min-height: 34px !important;\n  border-radius: 12px !important;\n  background: rgba(7, 14, 28, .92) !important;\n  border: 1px solid rgba(120,140,200,.25) !important;\n  color: #dce7ff !important;\n  font-size: 12px !important;\n  margin-bottom: 10px !important;\n}\n\ndiv[data-testid="stTextInput"] input[placeholder="Search saved briefs..."]::placeholder {\n  color: #8fa2c7 !important;\n}\n</style>\n', unsafe_allow_html=True)
 
-                if st.button("Clear chat", use_container_width=True):
-                    st.session_state.chat_messages = []
-                    st.rerun()
+# final-sidebar-workspace-theme-cleanup
+st.markdown('\n<style>\n/* final sidebar cleanup */\n.left-rail {\n  padding-top: 20px !important;\n}\n\n.brand {\n  margin-bottom: 22px !important;\n}\n\n.brand-icon {\n  font-size: 11px !important;\n  font-weight: 900 !important;\n  color: #fff !important;\n}\n\n.nav,\n.nav-active {\n  margin-bottom: 20px !important;\n}\n\n.section {\n  margin-top: 6px !important;\n  margin-bottom: 10px !important;\n  color: #9fb3dc !important;\n  font-size: 11px !important;\n  letter-spacing: 1.6px !important;\n  font-weight: 900 !important;\n}\n\n/* keep history search directly under PROJECT BRIEF HISTORY */\ndiv[data-testid="stTextInput"] input[placeholder="Search saved briefs..."] {\n  width: 250px !important;\n  max-width: 250px !important;\n  height: 34px !important;\n  min-height: 34px !important;\n  border-radius: 12px !important;\n  background: rgba(7,14,28,.92) !important;\n  border: 1px solid rgba(120,140,200,.28) !important;\n  color: #dce7ff !important;\n  font-size: 12px !important;\n  margin-top: 0 !important;\n  margin-bottom: 12px !important;\n}\n\n.history-wrap {\n  margin-top: 0 !important;\n}\n\n.history {\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-bottom: 14px !important;\n}\n\n.profile {\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-top: 18px !important;\n}\n\n/* hide Project Workspace if any old HTML remains */\n.workflow-result-title:has(+ .workflow-empty),\n.workflow-empty {\n  display: none !important;\n}\n\n/* one clean theme button */\n.theme-link {\n  display: inline-flex !important;\n  align-items: center !important;\n  justify-content: center !important;\n  min-width: 72px !important;\n  height: 34px !important;\n  padding: 0 14px !important;\n  border-radius: 12px !important;\n  border: 1px solid rgba(255,255,255,.16) !important;\n  background: rgba(255,255,255,.08) !important;\n  color: #eaf1ff !important;\n  font-size: 12px !important;\n  font-weight: 900 !important;\n}\n\n/* hide extra broken top symbols if still visible */\n.hero-icons span:not(.theme-link),\n.hero-icons a:not(.theme-link) {\n  display: none !important;\n}\n</style>\n', unsafe_allow_html=True)
 
-                if st.button("Save chat", use_container_width=True):
-                    st.toast(
-                        f"Saved {len(st.session_state.chat_history)} chat item(s) in session.",
-                        icon="?",
-                    )
+# final-real-left-sidebar-rebuild
+st.markdown('\n<style>\n.left-rail {\n  padding-top: 18px !important;\n}\n\n.brand {\n  margin-bottom: 22px !important;\n}\n\n.brand-icon {\n  width: 34px !important;\n  height: 34px !important;\n  border-radius: 12px !important;\n  display: grid !important;\n  place-items: center !important;\n  background: rgba(255, 80, 110, .18) !important;\n  border: 1px solid rgba(255, 80, 110, .45) !important;\n  color: #fff !important;\n  font-weight: 900 !important;\n  font-size: 11px !important;\n}\n\n.brand-title {\n  font-size: 15px !important;\n  font-weight: 900 !important;\n}\n\n.brand-sub {\n  font-size: 11px !important;\n  color: #9fb0d6 !important;\n}\n\n.nav-active {\n  margin-top: 18px !important;\n  margin-bottom: 22px !important;\n  width: 250px !important;\n}\n\n.section {\n  margin-top: 0 !important;\n  margin-bottom: 10px !important;\n  color: #9fb3dc !important;\n  font-size: 11px !important;\n  letter-spacing: 1.5px !important;\n  font-weight: 900 !important;\n}\n\ndiv[data-testid="stTextInput"] input[placeholder="Search saved briefs..."] {\n  width: 250px !important;\n  max-width: 250px !important;\n  height: 34px !important;\n  min-height: 34px !important;\n  border-radius: 12px !important;\n  background: rgba(7, 14, 28, .92) !important;\n  border: 1px solid rgba(120, 140, 200, .28) !important;\n  color: #dce7ff !important;\n  font-size: 12px !important;\n  margin-bottom: 12px !important;\n}\n\n.history-wrap {\n  margin-top: 0 !important;\n}\n\n.history {\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-bottom: 14px !important;\n}\n\n.profile {\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-top: 22px !important;\n}\n\n.theme-link {\n  display: inline-flex !important;\n  align-items: center !important;\n  justify-content: center !important;\n  min-width: 72px !important;\n  height: 34px !important;\n  padding: 0 14px !important;\n  border-radius: 12px !important;\n  border: 1px solid rgba(255,255,255,.16) !important;\n  background: rgba(255,255,255,.08) !important;\n  color: #eaf1ff !important;\n  font-size: 12px !important;\n  font-weight: 900 !important;\n}\n\n/* hide remaining Project Workspace if any old block survived */\n.workflow-result-title:has(+ .workflow-empty),\n.workflow-empty {\n  display: none !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+
+
+
+
+
+# final-chat-local-only
+st.markdown('\n<style>\n/* Chat card: clean compact widget in left empty area */\n.clean-chat-card {\n  width: 250px !important;\n  max-width: 250px !important;\n  height: 250px !important;\n  max-height: 250px !important;\n  margin-top: 18px !important;\n  margin-left: 0 !important;\n  border-radius: 16px !important;\n  overflow: hidden !important;\n}\n\n.clean-chat-window {\n  height: 190px !important;\n  max-height: 190px !important;\n  overflow-y: auto !important;\n}\n\n.clean-chat-card.minimized {\n  height: 58px !important;\n  max-height: 58px !important;\n}\n\n.clean-chat-card.minimized .clean-chat-window {\n  display: none !important;\n}\n\n.clean-chat-actions a {\n  width: 22px !important;\n  height: 22px !important;\n  border-radius: 7px !important;\n  display: inline-flex !important;\n  align-items: center !important;\n  justify-content: center !important;\n  text-decoration: none !important;\n}\n\n/* Only online chat composer, not all forms */\n.online-chat-composer {\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-top: 10px !important;\n}\n\n.online-chat-composer \n\n.online-chat-composer input {\n  height: 30px !important;\n  min-height: 30px !important;\n  font-size: 11px !important;\n}\n\n.online-chat-composer button {\n  height: 32px !important;\n  min-height: 32px !important;\n  font-size: 11px !important;\n  border-radius: 10px !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+# final-safe-layout-repair
+st.markdown('\n<style>\n/* SAFE cleanup: do not move Streamlit forms globally */\n.clean-chat-card {\n  width: 300px !important;\n  max-width: 300px !important;\n  border-radius: 18px !important;\n  overflow: hidden !important;\n}\n\n.clean-chat-window {\n  max-height: 320px !important;\n  overflow-y: auto !important;\n}\n\n.clean-chat-actions a {\n  width: 24px !important;\n  height: 24px !important;\n  border-radius: 8px !important;\n  display: inline-flex !important;\n  align-items: center !important;\n  justify-content: center !important;\n  text-decoration: none !important;\n  font-size: 14px !important;\n  font-weight: 900 !important;\n}\n\n.left-rail {\n  min-height: auto !important;\n}\n\n.history,\n.profile {\n  max-width: 250px !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+# final-fix-only-chat-composer-width
+st.markdown('\n<style>\n/* FIX ONLY THE BOTTOM CHAT COMPOSER */\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) {\n  width: 250px !important;\n  max-width: 250px !important;\n  min-width: 250px !important;\n  margin-top: 10px !important;\n  margin-left: 0 !important;\n  padding: 8px !important;\n  border-radius: 14px !important;\n  background: rgba(7, 14, 28, .94) !important;\n  border: 1px solid rgba(120, 140, 200, .24) !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) input {\n  width: 100% !important;\n  height: 30px !important;\n  min-height: 30px !important;\n  font-size: 11px !important;\n  border-radius: 9px !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) button {\n  width: 100% !important;\n  height: 32px !important;\n  min-height: 32px !important;\n  font-size: 11px !important;\n  border-radius: 10px !important;\n  margin-top: 6px !important;\n}\n\n/* Keep chat box and composer aligned */\n.clean-chat-card {\n  width: 250px !important;\n  max-width: 250px !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+# final-move-chat-up-only
+st.markdown('\n<style>\n/* Move AI chat card and composer upward only */\n.clean-chat-card {\n  margin-top: -150px !important;\n}\n\n.online-chat-composer,\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) {\n  margin-top: 8px !important;\n  transform: translateY(-150px) !important;\n  width: 250px !important;\n  max-width: 250px !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) input {\n  width: 100% !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) button {\n  width: 100% !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+# final-only-move-chat-composer-up
+st.markdown('\n<style>\n/* FINAL ONLY: move AI Chat + its input/send upward into the empty left space */\n.clean-chat-card {\n  transform: translateY(-265px) !important;\n}\n\n.online-chat-composer,\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) {\n  transform: translateY(-265px) !important;\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-top: 8px !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) input {\n  width: 100% !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) button {\n  width: 100% !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+# final-chat-up-visible-no-question
+st.markdown('\n<style>\n/* FINAL: move chat slightly higher and make inner text visible */\n.clean-chat-card {\n  transform: translateY(-315px) !important;\n  height: 265px !important;\n  max-height: 265px !important;\n}\n\n.clean-chat-window {\n  height: 205px !important;\n  max-height: 205px !important;\n  overflow-y: auto !important;\n  display: block !important;\n  visibility: visible !important;\n}\n\n.online-chat-composer,\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) {\n  transform: translateY(-315px) !important;\n  width: 250px !important;\n  max-width: 250px !important;\n  margin-top: 8px !important;\n}\n\n/* Make the empty chat text visible */\n.clean-empty,\n.empty-chat {\n  display: flex !important;\n  flex-direction: column !important;\n  align-items: center !important;\n  justify-content: center !important;\n  height: 150px !important;\n  text-align: center !important;\n  opacity: 1 !important;\n  visibility: visible !important;\n}\n\n.clean-empty-title,\n.empty-chat-title {\n  display: block !important;\n  color: #ffffff !important;\n  font-size: 13px !important;\n  font-weight: 900 !important;\n  margin-bottom: 6px !important;\n}\n\n.clean-empty-text,\n.empty-chat-text {\n  display: block !important;\n  color: #9fb0d6 !important;\n  font-size: 10px !important;\n  line-height: 1.45 !important;\n  max-width: 190px !important;\n}\n\n/* Remove any leftover standalone question marks around chat */\n.clean-avatar,\n.clean-empty-icon,\n.empty-chat-icon,\n.mini-brain {\n  display: none !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) input {\n  width: 100% !important;\n}\n\ndiv[data-testid="stForm"]:has(input[aria-label="Online chat"]) button {\n  width: 100% !important;\n}\n</style>\n', unsafe_allow_html=True)
