@@ -8,6 +8,7 @@ from datetime import datetime
 from textwrap import dedent
 
 import streamlit as st
+from pathlib import Path
 
 try:
     from app.llm_client import LLMClient
@@ -143,6 +144,37 @@ def submit_chat(prompt: str) -> None:
     st.session_state.chat_history.append(
         {"question": prompt, "answer": answer, "time": now_time()}
     )
+
+
+
+# -----------------------------
+# Persistent Project Brief Draft
+# -----------------------------
+PROJECT_BRIEF_DRAFT_FILE = Path("data/project_brief_draft.json")
+
+def load_project_brief_draft() -> str:
+    try:
+        if PROJECT_BRIEF_DRAFT_FILE.exists():
+            data = json.loads(PROJECT_BRIEF_DRAFT_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return str(data.get("project_brief", ""))
+    except Exception:
+        pass
+    return ""
+
+def save_project_brief_draft() -> None:
+    try:
+        PROJECT_BRIEF_DRAFT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PROJECT_BRIEF_DRAFT_FILE.write_text(
+            json.dumps(
+                {"project_brief": st.session_state.get("project_brief", "")},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
 
 
 def save_project_history() -> None:
@@ -1576,10 +1608,23 @@ if not st.session_state.logged_in:
         else:
             st.warning("Write a Project Brief first.")
 
+
+
+
 # -----------------------------
 # Main UI
 # -----------------------------
 left, main = st.columns([0.22, 0.78], gap="large")
+
+
+# final-load-project-brief-draft
+if not st.session_state.get("_project_brief_draft_loaded", False):
+    saved_project_brief = load_project_brief_draft()
+    if saved_project_brief and not st.session_state.get("project_brief"):
+        st.session_state.project_brief = saved_project_brief
+    st.session_state["_project_brief_draft_loaded"] = True
+# end-final-load-project-brief-draft
+
 
 with left:
     render_html(
@@ -1770,6 +1815,13 @@ with main:
     provider = html.escape(os.getenv("LLM_PROVIDER", "openai"))
     model = html.escape(os.getenv("OPENAI_MODEL", "deepseek-ai/DeepSeek-V3.1"))
 
+    theme_cols = st.columns([0.88, 0.12])
+    with theme_cols[1]:
+        if st.button("Theme", key="real_theme_toggle_btn", use_container_width=True):
+            st.session_state.light_mode = not st.session_state.get("light_mode", False)
+            st.rerun()
+
+
     render_html(
         f"""
         <section class="hero">
@@ -1777,7 +1829,7 @@ with main:
             <div class="brain">🧠</div>
           </div>
           <div class="hero-right">
-            <div class="hero-icons"><a class="theme-link" href="?ui_action=theme" title="Toggle theme">Theme</a></div>
+            <div class="hero-icons"></div>
             <div class="hero-title">
               <span class="accent">LLM-Powered</span><br>
               Virtual Assistant for<br>
@@ -1822,6 +1874,7 @@ with main:
         height=88,
         placeholder="Describe your software project here...",
         label_visibility="collapsed",
+        on_change=save_project_brief_draft,
     )
 
     render_html(
@@ -1934,3 +1987,76 @@ st.markdown('\n<style>\n/* FINAL tiny adjustment: add gap between saved-brief se
 
 # final-exact-history-under-title
 st.markdown('\n<style>\n/* FINAL exact adjustment: move ONLY saved brief search + saved card closer under PROJECT BRIEF HISTORY */\ndiv[data-testid="stTextInput"]:has(input[placeholder="Search saved briefs..."]) {\n  transform: translateY(-430px) !important;\n  margin-bottom: -420px !important;\n  width: 250px !important;\n  max-width: 250px !important;\n}\n\ndiv[data-testid="stTextInput"] input[placeholder="Search saved briefs..."] {\n  width: 250px !important;\n  max-width: 250px !important;\n  height: 34px !important;\n  min-height: 34px !important;\n}\n\n.history-wrap {\n  transform: translateY(-396px) !important;\n  margin-bottom: -386px !important;\n  width: 250px !important;\n  max-width: 250px !important;\n}\n\n.history {\n  width: 250px !important;\n  max-width: 250px !important;\n}\n</style>\n', unsafe_allow_html=True)
+
+
+
+
+
+
+
+
+# final-real-streamlit-theme-css
+if st.session_state.get("light_mode", False):
+    st.markdown(
+        """
+        <style>
+        .stApp,
+        [data-testid="stAppViewContainer"] {
+          background: linear-gradient(135deg, #f7f9ff 0%, #eef3ff 55%, #ffffff 100%) !important;
+          color: #0f172a !important;
+        }
+
+        .hero,
+        .workflow-card,
+        .brief-card,
+        .workflow-panel,
+        .workflow-result,
+        .history,
+        .profile,
+        .clean-chat-card {
+          background: rgba(255,255,255,.90) !important;
+          border-color: rgba(40,60,100,.22) !important;
+        }
+
+        .hero-title,
+        .workflow-title,
+        .brief-title,
+        .workflow-card-title,
+        .workflow-result-title,
+        .history-title,
+        .profile-name,
+        .clean-chat-title {
+          color: #0f172a !important;
+        }
+
+        .hero-desc,
+        .workflow-card-sub,
+        .brief-sub,
+        .workflow-result-sub,
+        .history span,
+        .profile-mail,
+        .clean-chat-status {
+          color: #475569 !important;
+        }
+
+        textarea,
+        input {
+          background: rgba(255,255,255,.98) !important;
+          color: #0f172a !important;
+          border-color: rgba(40,60,100,.28) !important;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+          color: #64748b !important;
+        }
+
+        .accent {
+          color: #e11d48 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+# end-final-real-streamlit-theme-css
+
