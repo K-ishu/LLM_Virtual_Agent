@@ -1,73 +1,66 @@
-apiVersion: apps/v1
+﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: llm-se-assistant
   namespace: llm-se-assistant
   labels:
-    app.kubernetes.io/name: llm-se-assistant
+    app: llm-se-assistant
 spec:
-  replicas: 1
-  revisionHistoryLimit: 3
+  replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/name: llm-se-assistant
+      app: llm-se-assistant
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: llm-se-assistant
+        app: llm-se-assistant
     spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: llm-se-assistant
           image: ghcr.io/k-ishu/llm_virtual_agent:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
-            - name: http
-              containerPort: 8501
+            - containerPort: 8501
+              name: http
+
           envFrom:
             - configMapRef:
                 name: llm-se-assistant-config
-          env:
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: llm-se-assistant-secrets
-                  key: OPENAI_API_KEY
-                  optional: true
+            - secretRef:
+                name: llm-se-assistant-secrets
+                optional: true
+
           readinessProbe:
             httpGet:
               path: /_stcore/health
-              port: http
-            initialDelaySeconds: 20
+              port: 8501
+            initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
+
           livenessProbe:
             httpGet:
               path: /_stcore/health
-              port: http
-            initialDelaySeconds: 40
-            periodSeconds: 30
-            timeoutSeconds: 5
+              port: 8501
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
             failureThreshold: 3
+
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: "100m"
+              memory: "256Mi"
             limits:
-              cpu: 500m
-              memory: 1Gi
+              cpu: "500m"
+              memory: "768Mi"
+
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
             runAsNonRoot: true
             runAsUser: 1000
-            runAsGroup: 1000
             capabilities:
-              drop: ["ALL"]
-            readOnlyRootFilesystem: false
+              drop:
+                - ALL
