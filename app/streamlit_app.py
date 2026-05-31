@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import html
 import json
+import hashlib
+import secrets
 import os
 import re
 from datetime import datetime
@@ -1519,6 +1521,81 @@ if ui_action == "theme":
     st.rerun()
 # end-final-safe-url-actions
 
+
+# -----------------------------
+# Local Signup/Login Storage
+# -----------------------------
+APP_USERS_FILE = Path("data/app_users.json")
+
+def _hash_password(password: str, salt: str) -> str:
+    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+
+def load_app_users() -> dict:
+    try:
+        if APP_USERS_FILE.exists():
+            data = json.loads(APP_USERS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+def save_app_users(users: dict) -> None:
+    try:
+        APP_USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        APP_USERS_FILE.write_text(
+            json.dumps(users, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+def create_local_user(username: str, password: str) -> tuple[bool, str]:
+    username = username.strip()
+    password = password.strip()
+
+    if not username or not password:
+        return False, "Username and password are required."
+
+    if len(username) < 3:
+        return False, "Username must be at least 3 characters."
+
+    if len(password) < 4:
+        return False, "Password must be at least 4 characters."
+
+    users = load_app_users()
+    key = username.lower()
+
+    if key == "admin" or key in users:
+        return False, "This username already exists."
+
+    salt = secrets.token_hex(16)
+    users[key] = {
+        "username": username,
+        "salt": salt,
+        "password_hash": _hash_password(password, salt),
+    }
+    save_app_users(users)
+    return True, "Account created successfully. You can now login."
+
+def verify_local_user(username: str, password: str) -> bool:
+    username = username.strip()
+    password = password.strip()
+
+    # Demo fallback account
+    if username == "admin" and password == "admin":
+        return True
+
+    users = load_app_users()
+    user = users.get(username.lower())
+    if not user:
+        return False
+
+    expected_hash = user.get("password_hash", "")
+    salt = user.get("salt", "")
+    return expected_hash == _hash_password(password, salt)
+
+
 # -----------------------------
 # Login gate
 # -----------------------------
@@ -1530,8 +1607,9 @@ if not st.session_state.logged_in:
             <div class="login-logo">🧠</div>
             <div class="login-title">LLM Assistant Login</div>
             <div class="login-sub">
-              Sign in to open the software engineering assistant dashboard.
-              Default local credentials are <b>admin / admin</b>.
+              Access the LLM-powered software engineering assistant.
+              Create an account or log in to generate requirements,
+              reviews, test cases, architecture, code analysis, and security scenarios.
             </div>
           </div>
         </div>
@@ -1540,20 +1618,58 @@ if not st.session_state.logged_in:
 
     a, b, c = st.columns([1, 1.2, 1])
     with b:
+        if "auth_view" not in st.session_state:
+            st.session_state.auth_view = "login"
+
+        is_signup = st.session_state.auth_view == "signup"
+
         with st.form("main_login_form"):
             username = st.text_input("Username", placeholder="admin")
             password = st.text_input("Password", type="password", placeholder="admin")
-            submitted = st.form_submit_button("Login", use_container_width=True)
+
+            confirm_password = ""
+            if is_signup:
+                confirm_password = st.text_input(
+                    "Confirm Password",
+                    type="password",
+                    placeholder="repeat password",
+                )
+
+            submit_label = "Create account" if is_signup else "Login"
+            submitted = st.form_submit_button(submit_label, use_container_width=True)
+
             if submitted:
-                if username.strip() == "admin" and password.strip() == "admin":
-                    st.session_state.logged_in = True
-                    st.session_state.authenticated = True
-                    st.session_state.logged_in = True
-                    st.session_state.user_name = "admin"
-                    st.session_state.user_email = "admin@local"
-                    st.rerun()
+                username_clean = username.strip()
+                password_clean = password.strip()
+
+                if is_signup:
+                    if password_clean != confirm_password.strip():
+                        st.error("Passwords do not match.")
+                    else:
+                        ok, message = create_local_user(username_clean, password_clean)
+                        if ok:
+                            st.success("Account created successfully. Please login.")
+                        else:
+                            st.error(message)
+
                 else:
-                    st.error("Invalid username or password.")
+                    if verify_local_user(username_clean, password_clean):
+                        st.session_state.logged_in = True
+                        st.session_state.authenticated = True
+                        st.session_state.user_name = username_clean
+                        st.session_state.user_email = f"{username_clean}@local"
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password.")
+
+        if is_signup:
+            if st.button("Already have an account? Back to login", use_container_width=True):
+                st.session_state.auth_view = "login"
+                st.rerun()
+        else:
+            if st.button("New user? Create account", use_container_width=True):
+                st.session_state.auth_view = "signup"
+                st.rerun()
 
     st.stop()
 
