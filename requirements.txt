@@ -9,3 +9,6 @@ scikit-learn==1.6.0
 openpyxl==3.1.5
 openai==1.59.7
 pytest==8.3.4
+bcrypt
+python-docx
+reportlab

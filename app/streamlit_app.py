@@ -11,6 +11,8 @@ from textwrap import dedent
 
 import streamlit as st
 from pathlib import Path
+import time
+import io
 
 try:
     from app.llm_client import LLMClient
@@ -180,10 +182,16 @@ def save_project_brief_draft() -> None:
 
 
 
+
+
 # -----------------------------
-# Persistent Project Brief History
+# Per-user Project Brief History
 # -----------------------------
 PROJECT_HISTORY_FILE = Path("data/project_brief_history.json")
+
+def current_history_user() -> str:
+    return str(st.session_state.get("user_name", "guest")).strip().lower() or "guest"
+
 
 def load_project_history_from_disk() -> list[dict]:
     try:
@@ -195,9 +203,9 @@ def load_project_history_from_disk() -> list[dict]:
         pass
     return []
 
+
 def save_project_history_to_disk(items: list[dict]) -> None:
     try:
-        items = apply_current_user_to_history_items(items)
         PROJECT_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         PROJECT_HISTORY_FILE.write_text(
             json.dumps(items, ensure_ascii=False, indent=2),
@@ -206,81 +214,39 @@ def save_project_history_to_disk(items: list[dict]) -> None:
     except Exception:
         pass
 
+
 def sync_project_history_from_disk() -> None:
     owner = current_history_user()
     disk_history = load_project_history_from_disk()
-
-    # One-time migration for old history items that had no user field.
-    migrated = False
-    fixed_disk_history = []
-    for item in disk_history:
-        if not isinstance(item, dict):
-            continue
-        copied = dict(item)
-        if not copied.get("user"):
-            copied["user"] = owner
-            migrated = True
-        fixed_disk_history.append(copied)
-
-    if migrated:
-        save_project_history_to_disk(fixed_disk_history)
-
     current_history = st.session_state.get("project_history", [])
-    current_history = apply_current_user_to_history_items(current_history)
 
-    merged = fixed_disk_history + current_history
-    merged = keep_only_current_user_history(merged)
-
-    deduped = []
+    merged = disk_history + current_history
+    filtered = []
     seen = set()
 
     for item in merged:
+        if not isinstance(item, dict):
+            continue
+
+        copied = dict(item)
+        if not copied.get("user"):
+            copied["user"] = owner
+
+        if str(copied.get("user", "")).strip().lower() != owner:
+            continue
+
         key = (
-            str(item.get("user", "")),
-            str(item.get("title", "")),
-            str(item.get("brief", "")),
-            str(item.get("time", "")),
+            str(copied.get("user", "")),
+            str(copied.get("title", "")),
+            str(copied.get("brief", "")),
+            str(copied.get("time", "")),
         )
 
         if key not in seen:
             seen.add(key)
-            deduped.append(item)
+            filtered.append(copied)
 
-    st.session_state.project_history = deduped[:50]
-
-
-
-# -----------------------------
-# Per-user Project Brief History
-# -----------------------------
-def current_history_user() -> str:
-    return str(st.session_state.get("user_name", "guest")).strip().lower() or "guest"
-
-def apply_current_user_to_history_items(items: list[dict]) -> list[dict]:
-    owner = current_history_user()
-    fixed = []
-
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-
-        copied = dict(item)
-
-        # If an item was created before per-user history existed,
-        # attach it to the currently logged-in user during this session.
-        if not copied.get("user"):
-            copied["user"] = owner
-
-        fixed.append(copied)
-
-    return fixed
-
-def keep_only_current_user_history(items: list[dict]) -> list[dict]:
-    owner = current_history_user()
-    return [
-        item for item in items
-        if isinstance(item, dict) and str(item.get("user", "")).strip().lower() == owner
-    ]
+    st.session_state.project_history = filtered[:50]
 
 
 def save_project_history() -> None:
@@ -391,6 +357,165 @@ def split_result_sections(text: str) -> list[tuple[str, str]]:
             sections.append((title, body))
 
     return sections or [("AI Output", normalized.strip())]
+
+
+
+# -----------------------------
+# Workflow Export Helpers
+# -----------------------------
+def _workflow_export_text() -> str:
+    title = st.session_state.get("workflow_title", "AI Output") or "AI Output"
+    brief = st.session_state.get("project_brief", "") or ""
+    result = st.session_state.get("workflow_result", "") or ""
+
+    return f"""# Workflow Result: {title}
+
+## Project Brief
+
+{brief}
+
+## AI Output
+
+{result}
+"""
+
+
+def _workflow_export_json() -> str:
+    payload = {
+        "workflow_title": st.session_state.get("workflow_title", "AI Output"),
+        "project_brief": st.session_state.get("project_brief", ""),
+        "workflow_result": st.session_state.get("workflow_result", ""),
+        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "user": st.session_state.get("user_name", "guest"),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _make_docx_bytes(text: str) -> bytes:
+    from docx import Document
+
+    document = Document()
+    document.add_heading("LLM Workflow Result", level=1)
+
+    for line in text.splitlines():
+        if line.startswith("# "):
+            document.add_heading(line.replace("# ", "").strip(), level=1)
+        elif line.startswith("## "):
+            document.add_heading(line.replace("## ", "").strip(), level=2)
+        elif line.strip():
+            document.add_paragraph(line)
+        else:
+            document.add_paragraph("")
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def _make_pdf_bytes(text: str) -> bytes:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    x = 42
+    y = height - 46
+    line_height = 13
+
+    pdf.setFont("Helvetica-Bold", 13)
+    pdf.drawString(x, y, "LLM Workflow Result")
+    y -= 26
+    pdf.setFont("Helvetica", 9)
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            y -= line_height
+            continue
+
+        wrapped = textwrap.wrap(line, width=95) or [""]
+
+        for part in wrapped:
+            if y < 45:
+                pdf.showPage()
+                y = height - 46
+                pdf.setFont("Helvetica", 9)
+
+            if raw_line.startswith("#"):
+                pdf.setFont("Helvetica-Bold", 10)
+            else:
+                pdf.setFont("Helvetica", 9)
+
+            pdf.drawString(x, y, part[:120])
+            y -= line_height
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def render_workflow_downloads() -> None:
+    if not st.session_state.get("workflow_result", "").strip():
+        return
+
+    safe_title = re.sub(
+        r"[^a-zA-Z0-9_-]+",
+        "_",
+        st.session_state.get("workflow_title", "workflow_result").strip() or "workflow_result",
+    ).lower()
+
+    markdown_text = _workflow_export_text()
+    json_text = _workflow_export_json()
+
+    st.markdown("#### Export Workflow Result")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        st.download_button(
+            "Markdown",
+            data=markdown_text.encode("utf-8"),
+            file_name=f"{safe_title}.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
+
+    with c2:
+        st.download_button(
+            "JSON",
+            data=json_text.encode("utf-8"),
+            file_name=f"{safe_title}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+    with c3:
+        try:
+            st.download_button(
+                "Word",
+                data=_make_docx_bytes(markdown_text),
+                file_name=f"{safe_title}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+            )
+        except Exception as exc:
+            st.caption(f"Word export unavailable: {exc}")
+
+    with c4:
+        try:
+            st.download_button(
+                "PDF",
+                data=_make_pdf_bytes(markdown_text),
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as exc:
+            st.caption(f"PDF export unavailable: {exc}")
 
 
 def render_workflow_result() -> None:
@@ -1628,13 +1753,50 @@ if ui_action == "theme":
 # end-final-safe-url-actions
 
 
+
+
 # -----------------------------
 # Local Signup/Login Storage
 # -----------------------------
 APP_USERS_FILE = Path("data/app_users.json")
+SESSION_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 
-def _hash_password(password: str, salt: str) -> str:
-    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+try:
+    import bcrypt
+except Exception:
+    bcrypt = None
+
+
+def _hash_password(password: str) -> dict:
+    password = password.strip()
+
+    if bcrypt is not None:
+        hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        return {"algorithm": "bcrypt", "password_hash": hashed}
+
+    # Fallback only if bcrypt is unavailable.
+    salt = secrets.token_hex(16)
+    digest = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return {"algorithm": "sha256", "salt": salt, "password_hash": digest}
+
+
+def _verify_password(password: str, user_record: dict) -> bool:
+    password = password.strip()
+    algorithm = user_record.get("algorithm", "")
+
+    if algorithm == "bcrypt" and bcrypt is not None:
+        try:
+            return bcrypt.checkpw(
+                password.encode("utf-8"),
+                user_record.get("password_hash", "").encode("utf-8"),
+            )
+        except Exception:
+            return False
+
+    salt = user_record.get("salt", "")
+    expected = user_record.get("password_hash", "")
+    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest() == expected
+
 
 def load_app_users() -> dict:
     try:
@@ -1646,6 +1808,7 @@ def load_app_users() -> dict:
         pass
     return {}
 
+
 def save_app_users(users: dict) -> None:
     try:
         APP_USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -1656,9 +1819,11 @@ def save_app_users(users: dict) -> None:
     except Exception:
         pass
 
-def create_local_user(username: str, password: str) -> tuple[bool, str]:
+
+def create_local_user(username: str, password: str, email: str = "") -> tuple[bool, str]:
     username = username.strip()
     password = password.strip()
+    email = email.strip()
 
     if not username or not password:
         return False, "Username and password are required."
@@ -1666,8 +1831,8 @@ def create_local_user(username: str, password: str) -> tuple[bool, str]:
     if len(username) < 3:
         return False, "Username must be at least 3 characters."
 
-    if len(password) < 4:
-        return False, "Password must be at least 4 characters."
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters."
 
     users = load_app_users()
     key = username.lower()
@@ -1675,31 +1840,96 @@ def create_local_user(username: str, password: str) -> tuple[bool, str]:
     if key == "admin" or key in users:
         return False, "This username already exists."
 
-    salt = secrets.token_hex(16)
+    password_data = _hash_password(password)
+
     users[key] = {
         "username": username,
-        "salt": salt,
-        "password_hash": _hash_password(password, salt),
+        "email": email or f"{username}@local",
+        **password_data,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
     }
+
     save_app_users(users)
-    return True, "Account created successfully. You can now login."
+    return True, "Account created successfully. Please login."
+
+
+def get_local_user(username: str) -> dict | None:
+    username = username.strip()
+
+    if username == "admin":
+        return {
+            "username": "admin",
+            "email": "admin@local",
+            "demo": True,
+        }
+
+    return load_app_users().get(username.lower())
+
 
 def verify_local_user(username: str, password: str) -> bool:
     username = username.strip()
     password = password.strip()
 
-    # Demo fallback account
     if username == "admin" and password == "admin":
         return True
 
-    users = load_app_users()
-    user = users.get(username.lower())
+    user = get_local_user(username)
     if not user:
         return False
 
-    expected_hash = user.get("password_hash", "")
-    salt = user.get("salt", "")
-    return expected_hash == _hash_password(password, salt)
+    return _verify_password(password, user)
+
+
+def start_user_session(username: str) -> None:
+    user = get_local_user(username) or {}
+
+    st.session_state.logged_in = True
+    st.session_state.authenticated = True
+    st.session_state.user_name = user.get("username", username)
+    st.session_state.user_email = user.get("email", f"{username}@local")
+    st.session_state.last_activity_ts = time.time()
+
+
+def logout_user() -> None:
+    keys_to_reset = [
+        "logged_in",
+        "authenticated",
+        "user_name",
+        "user_email",
+        "project_history",
+        "workflow_result",
+        "workflow_title",
+        "chat_messages",
+        "chat_history",
+        "project_brief",
+        "_project_brief_draft_loaded",
+        "_project_history_loaded_from_disk",
+        "last_activity_ts",
+    ]
+
+    for key in keys_to_reset:
+        if key in st.session_state:
+            del st.session_state[key]
+
+    st.session_state.logged_in = False
+    st.session_state.authenticated = False
+    st.session_state.user_name = "Guest User"
+    st.session_state.user_email = "Not logged in"
+
+
+def enforce_session_timeout() -> None:
+    if not st.session_state.get("logged_in", False):
+        return
+
+    last_activity = float(st.session_state.get("last_activity_ts", time.time()))
+    now = time.time()
+
+    if now - last_activity > SESSION_TIMEOUT_SECONDS:
+        logout_user()
+        st.warning("Your session expired. Please login again.")
+        st.rerun()
+
+    st.session_state.last_activity_ts = now
 
 
 # -----------------------------
@@ -1731,10 +1961,13 @@ if not st.session_state.logged_in:
 
         with st.form("main_login_form"):
             username = st.text_input("Username", placeholder="admin")
-            password = st.text_input("Password", type="password", placeholder="admin")
+            password = st.text_input("Password", type="password", placeholder="password")
 
+            email = ""
             confirm_password = ""
+
             if is_signup:
+                email = st.text_input("Email optional", placeholder="name@example.com")
                 confirm_password = st.text_input(
                     "Confirm Password",
                     type="password",
@@ -1752,7 +1985,7 @@ if not st.session_state.logged_in:
                     if password_clean != confirm_password.strip():
                         st.error("Passwords do not match.")
                     else:
-                        ok, message = create_local_user(username_clean, password_clean)
+                        ok, message = create_local_user(username_clean, password_clean, email)
                         if ok:
                             st.success("Account created successfully. Please login.")
                         else:
@@ -1760,10 +1993,7 @@ if not st.session_state.logged_in:
 
                 else:
                     if verify_local_user(username_clean, password_clean):
-                        st.session_state.logged_in = True
-                        st.session_state.authenticated = True
-                        st.session_state.user_name = username_clean
-                        st.session_state.user_email = f"{username_clean}@local"
+                        start_user_session(username_clean)
                         st.rerun()
                     else:
                         st.error("Invalid username or password.")
@@ -2032,10 +2262,7 @@ with left:
     )
 
     if st.button("Logout", key="sidebar_logout_btn_clean", use_container_width=True):
-        st.session_state.logged_in = False
-        st.session_state.authenticated = False
-        st.session_state.user_name = "Guest User"
-        st.session_state.user_email = "Not logged in"
+        logout_user()
         st.rerun()
 
 with main:
