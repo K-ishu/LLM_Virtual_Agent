@@ -1,0 +1,102 @@
+[
+  {
+    "id": "PB-001",
+    "title": "University Internship Platform",
+    "brief": "Create a web-based platform for university students to find internships, upload their CV, search positions, receive AI matching suggestions, and track application status."
+  },
+  {
+    "id": "PB-002",
+    "title": "Medical Appointment System",
+    "brief": "Build a healthcare appointment platform where patients book doctors, upload documents, receive reminders, and doctors manage schedules securely."
+  },
+  {
+    "id": "PB-003",
+    "title": "E-Commerce Platform",
+    "brief": "Create an online store with product catalog, cart, checkout, payments, user reviews, recommendations, and admin analytics."
+  },
+  {
+    "id": "PB-004",
+    "title": "Learning Management System",
+    "brief": "Develop a platform for course enrollment, lessons, quizzes, assignments, grading, and progress tracking."
+  },
+  {
+    "id": "PB-005",
+    "title": "Cybersecurity Incident Reporting Tool",
+    "brief": "Build a company tool for reporting suspicious emails, triaging incidents, assigning severity, and generating audit logs."
+  },
+  {
+    "id": "PB-006",
+    "title": "AI Resume Screening Assistant",
+    "brief": "Create a system for HR teams to upload job descriptions and CVs, rank candidates, explain matching reasons, and support human review."
+  },
+  {
+    "id": "PB-007",
+    "title": "Food Delivery System",
+    "brief": "Create a food delivery platform with customer orders, restaurant dashboard, driver assignment, tracking, payments, and ratings."
+  },
+  {
+    "id": "PB-008",
+    "title": "Smart Parking System",
+    "brief": "Design a parking reservation system where drivers find available spaces, reserve slots, pay online, and receive QR entry codes."
+  },
+  {
+    "id": "PB-009",
+    "title": "Bank Loan Portal",
+    "brief": "Create a secure banking portal for loan applications, document uploads, eligibility feedback, review workflow, and approval tracking."
+  },
+  {
+    "id": "PB-010",
+    "title": "Travel Planning Assistant",
+    "brief": "Build a platform for creating travel itineraries, comparing destinations, managing bookings, and storing travel documents securely."
+  },
+  {
+    "id": "PB-011",
+    "title": "Smart Home Dashboard",
+    "brief": "Design a dashboard to monitor and control IoT devices, configure automation rules, receive alerts, and analyze energy usage."
+  },
+  {
+    "id": "PB-012",
+    "title": "Legal Document Review Assistant",
+    "brief": "Develop a system where users upload contracts, receive summaries, identify risky clauses, ask questions, and export review notes."
+  },
+  {
+    "id": "PB-013",
+    "title": "Fitness Coaching App",
+    "brief": "Create an app for fitness goals, workout tracking, personalized plans, trainer connection, and progress monitoring."
+  },
+  {
+    "id": "PB-014",
+    "title": "Real Estate Listing Platform",
+    "brief": "Build a real estate platform where agents publish listings and users search properties, schedule visits, save favorites, and compare prices."
+  },
+  {
+    "id": "PB-015",
+    "title": "Customer Support Chatbot",
+    "brief": "Develop a support assistant that answers FAQs, escalates issues to human agents, stores conversation history, and provides analytics."
+  },
+  {
+    "id": "PB-016",
+    "title": "Hospital Inventory System",
+    "brief": "Create a hospital inventory system for medicines, equipment, stock alerts, supplier orders, expiration dates, and audit reports."
+  },
+  {
+    "id": "PB-017",
+    "title": "Research Paper Recommendation System",
+    "brief": "Build a platform where researchers upload interests or papers and receive publication recommendations, reading lists, and citation trends."
+  },
+  {
+    "id": "PB-018",
+    "title": "Personal Finance Budgeting App",
+    "brief": "Develop an app for income tracking, expense categories, budgets, savings goals, alerts, and monthly financial reports."
+  },
+  {
+    "id": "PB-019",
+    "title": "Student Mental Health Support App",
+    "brief": "Develop a confidential platform for wellbeing check-ins, counseling appointments, emergency resources, and privacy-preserving guidance."
+  },
+  {
+    "id": "PB-020",
+    "title": "Online Event Management Platform",
+    "brief": "Create a platform for event creation, ticket registration, attendee management, payment processing, reminders, and analytics."
+  }
+]

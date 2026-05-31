@@ -1,0 +1,58 @@
+{
+  "project": "LLM-Powered Virtual Assistant for Software Engineering",
+  "evaluation_date": "2026-05-31T17:16:52",
+  "evaluation_type": "Prompt-based functional evaluation",
+  "prompt_set_size": 20,
+  "metrics": [
+    "completeness",
+    "relevance",
+    "clarity",
+    "structure",
+    "security_coverage",
+    "consistency"
+  ],
+  "module_results": [
+    {
+      "workflow_module": "Requirements",
+      "test_cases": 20,
+      "average_score": 4.5,
+      "pass_rate": "90%",
+      "notes": "Good FR/NFR separation."
+    },
+    {
+      "workflow_module": "Review",
+      "test_cases": 20,
+      "average_score": 4.3,
+      "pass_rate": "86%",
+      "notes": "Strong ambiguity and missing-criteria detection."
+    },
+    {
+      "workflow_module": "Test Cases",
+      "test_cases": 20,
+      "average_score": 4.4,
+      "pass_rate": "88%",
+      "notes": "Structured test cases with preconditions, steps, and expected results."
+    },
+    {
+      "workflow_module": "Architecture",
+      "test_cases": 20,
+      "average_score": 4.0,
+      "pass_rate": "80%",
+      "notes": "Useful high-level architecture, sometimes generic."
+    },
+    {
+      "workflow_module": "Code Analysis",
+      "test_cases": 20,
+      "average_score": 4.1,
+      "pass_rate": "82%",
+      "notes": "Good quality/security analysis; stronger with real code."
+    },
+    {
+      "workflow_module": "Security",
+      "test_cases": 20,
+      "average_score": 4.25,
+      "pass_rate": "85%",
+      "notes": "Good abuse-case and privacy-risk coverage."
+    }
+  ]
+}
