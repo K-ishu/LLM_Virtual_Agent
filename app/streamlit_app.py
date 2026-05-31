@@ -179,6 +179,110 @@ def save_project_brief_draft() -> None:
         pass
 
 
+
+# -----------------------------
+# Persistent Project Brief History
+# -----------------------------
+PROJECT_HISTORY_FILE = Path("data/project_brief_history.json")
+
+def load_project_history_from_disk() -> list[dict]:
+    try:
+        if PROJECT_HISTORY_FILE.exists():
+            data = json.loads(PROJECT_HISTORY_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+    except Exception:
+        pass
+    return []
+
+def save_project_history_to_disk(items: list[dict]) -> None:
+    try:
+        items = apply_current_user_to_history_items(items)
+        PROJECT_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PROJECT_HISTORY_FILE.write_text(
+            json.dumps(items, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+def sync_project_history_from_disk() -> None:
+    owner = current_history_user()
+    disk_history = load_project_history_from_disk()
+
+    # One-time migration for old history items that had no user field.
+    migrated = False
+    fixed_disk_history = []
+    for item in disk_history:
+        if not isinstance(item, dict):
+            continue
+        copied = dict(item)
+        if not copied.get("user"):
+            copied["user"] = owner
+            migrated = True
+        fixed_disk_history.append(copied)
+
+    if migrated:
+        save_project_history_to_disk(fixed_disk_history)
+
+    current_history = st.session_state.get("project_history", [])
+    current_history = apply_current_user_to_history_items(current_history)
+
+    merged = fixed_disk_history + current_history
+    merged = keep_only_current_user_history(merged)
+
+    deduped = []
+    seen = set()
+
+    for item in merged:
+        key = (
+            str(item.get("user", "")),
+            str(item.get("title", "")),
+            str(item.get("brief", "")),
+            str(item.get("time", "")),
+        )
+
+        if key not in seen:
+            seen.add(key)
+            deduped.append(item)
+
+    st.session_state.project_history = deduped[:50]
+
+
+
+# -----------------------------
+# Per-user Project Brief History
+# -----------------------------
+def current_history_user() -> str:
+    return str(st.session_state.get("user_name", "guest")).strip().lower() or "guest"
+
+def apply_current_user_to_history_items(items: list[dict]) -> list[dict]:
+    owner = current_history_user()
+    fixed = []
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        copied = dict(item)
+
+        # If an item was created before per-user history existed,
+        # attach it to the currently logged-in user during this session.
+        if not copied.get("user"):
+            copied["user"] = owner
+
+        fixed.append(copied)
+
+    return fixed
+
+def keep_only_current_user_history(items: list[dict]) -> list[dict]:
+    owner = current_history_user()
+    return [
+        item for item in items
+        if isinstance(item, dict) and str(item.get("user", "")).strip().lower() == owner
+    ]
+
+
 def save_project_history() -> None:
     brief = st.session_state.get("project_brief", "").strip()
     if not brief:
@@ -189,6 +293,7 @@ def save_project_history() -> None:
         title += "..."
 
     item = {
+        "user": current_history_user(),
         "title": title,
         "brief": brief,
         "time": now_time(),
@@ -201,6 +306,7 @@ def save_project_history() -> None:
     ]
     st.session_state.project_history = [item] + existing
     st.session_state.project_history = st.session_state.project_history[:6]
+    save_project_history_to_disk(st.session_state.project_history)
 
 
 def normalize_result_text(text: str) -> str:
@@ -1741,6 +1847,11 @@ if not st.session_state.get("_project_brief_draft_loaded", False):
     st.session_state["_project_brief_draft_loaded"] = True
 # end-final-load-project-brief-draft
 
+
+
+# final-sync-history-every-dashboard-render
+sync_project_history_from_disk()
+# end-final-sync-history-every-dashboard-render
 
 with left:
     render_html(
