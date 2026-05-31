@@ -519,6 +519,137 @@ def render_workflow_downloads() -> None:
             st.caption(f"PDF export unavailable: {exc}")
 
 
+
+# final-workflow-download-buttons
+def render_final_workflow_download_buttons() -> None:
+    result = str(st.session_state.get("workflow_result", "")).strip()
+    if not result:
+        return
+
+    title = str(st.session_state.get("workflow_title", "workflow_result") or "workflow_result")
+    brief = str(st.session_state.get("project_brief", "") or "")
+    safe_title = re.sub(r"[^a-zA-Z0-9_-]+", "_", title).strip("_").lower() or "workflow_result"
+
+    markdown_text = f"""# Workflow Result: {title}
+
+## Project Brief
+
+{brief}
+
+## AI Output
+
+{result}
+"""
+
+    json_text = json.dumps(
+        {
+            "workflow_title": title,
+            "project_brief": brief,
+            "workflow_result": result,
+            "user": st.session_state.get("user_name", "guest"),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    st.markdown("### Download Workflow Result")
+
+    col_md, col_json, col_word, col_pdf = st.columns(4)
+
+    with col_md:
+        st.download_button(
+            "Markdown",
+            data=markdown_text.encode("utf-8"),
+            file_name=f"{safe_title}.md",
+            mime="text/markdown",
+            use_container_width=True,
+            key="download_workflow_markdown_final",
+        )
+
+    with col_json:
+        st.download_button(
+            "JSON",
+            data=json_text.encode("utf-8"),
+            file_name=f"{safe_title}.json",
+            mime="application/json",
+            use_container_width=True,
+            key="download_workflow_json_final",
+        )
+
+    with col_word:
+        try:
+            from docx import Document
+            doc_buffer = io.BytesIO()
+            doc = Document()
+            doc.add_heading("LLM Workflow Result", level=1)
+            doc.add_heading("Project Brief", level=2)
+            doc.add_paragraph(brief)
+            doc.add_heading("AI Output", level=2)
+            for line in result.splitlines():
+                if line.strip():
+                    doc.add_paragraph(line.strip())
+            doc.save(doc_buffer)
+            doc_buffer.seek(0)
+
+            st.download_button(
+                "Word",
+                data=doc_buffer.getvalue(),
+                file_name=f"{safe_title}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+                key="download_workflow_word_final",
+            )
+        except Exception as exc:
+            st.caption(f"Word unavailable: {exc}")
+
+    with col_pdf:
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.pdfgen import canvas
+
+            pdf_buffer = io.BytesIO()
+            pdf = canvas.Canvas(pdf_buffer, pagesize=A4)
+            width, height = A4
+            x = 42
+            y = height - 45
+
+            pdf.setFont("Helvetica-Bold", 14)
+            pdf.drawString(x, y, "LLM Workflow Result")
+            y -= 28
+
+            pdf.setFont("Helvetica-Bold", 10)
+            pdf.drawString(x, y, "Project Brief")
+            y -= 18
+
+            pdf.setFont("Helvetica", 9)
+            for block in [brief, "", "AI Output", result]:
+                for raw_line in str(block).splitlines():
+                    for part in textwrap.wrap(raw_line.strip(), width=95):
+                        if y < 45:
+                            pdf.showPage()
+                            y = height - 45
+                            pdf.setFont("Helvetica", 9)
+                        pdf.drawString(x, y, part[:120])
+                        y -= 13
+                    if not raw_line.strip():
+                        y -= 8
+
+            pdf.save()
+            pdf_buffer.seek(0)
+
+            st.download_button(
+                "PDF",
+                data=pdf_buffer.getvalue(),
+                file_name=f"{safe_title}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="download_workflow_pdf_final",
+            )
+        except Exception as exc:
+            st.caption(f"PDF unavailable: {exc}")
+# end-final-workflow-download-buttons
+
+
 def render_workflow_result() -> None:
     if not st.session_state.workflow_result:
         render_html(
@@ -2514,4 +2645,12 @@ if st.session_state.get("light_mode", False):
         unsafe_allow_html=True,
     )
 # end-final-real-streamlit-theme-css
+
+
+# final-safe-render-workflow-downloads
+try:
+    render_final_workflow_download_buttons()
+except NameError:
+    pass
+# end-final-safe-render-workflow-downloads
 
