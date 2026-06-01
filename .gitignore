@@ -5,4 +5,13 @@ __pycache__/
 data/raw/
 data/processed/*.json
 !data/processed/.gitkeep
-.streamlit/
+.streamlit/app/*backup*.py
+app/*broken*.py
+app/*error*.py
+app/*raw_html*.py
+data/app_users.json
+data/project_brief_history.json
+data/project_brief_draft.json
+create_evaluation_files.py
+__pycache__/
+*.pyc
