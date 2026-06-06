@@ -1,4 +1,7 @@
-﻿# LLM-Powered Virtual Assistant for Software Engineering
+﻿cd C:\Users\Mohamad\LLM_Virtual_Agent_repo
+
+@'
+# LLM-Powered Virtual Assistant for Software Engineering
 
 An academic AI Systems Engineering project that implements an LLM-powered virtual assistant for early-stage software engineering workflows.
 
@@ -330,3 +333,5 @@ https://github.com/K-ishu/LLM_Virtual_Agent
 ~~~text
 https://llm-virtual-agent-1.onrender.com
 ~~~
+'@ | Set-Content README.md -Encoding UTF8
+
