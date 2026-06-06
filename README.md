@@ -1,221 +1,332 @@
-# LLM-Powered Virtual Assistant for Software Engineering Tasks
+﻿# LLM-Powered Virtual Assistant for Software Engineering
 
-This repository is a course-project prototype for an **LLM-powered virtual assistant for human-machine cooperation** in software engineering.
+An academic AI Systems Engineering project that implements an LLM-powered virtual assistant for early-stage software engineering workflows.
 
-The project follows the course workflow:
+The system helps users transform a natural-language project brief into structured software-engineering artifacts, including requirements, requirement review feedback, test cases, architecture suggestions, code-quality analysis, and defensive security scenarios.
 
-1. Requirements analysis
-2. Design and architecture
-3. Prototype development
-4. Testing and evaluation
-5. Local deployment with Docker
+## Project Overview
 
-## Use Case
+This project is designed as a human-in-the-loop software engineering assistant. The user provides a short project description, selects one workflow module, reviews the generated output, and exports the result in a documentation-ready format.
 
-The assistant helps a human user with early software-engineering tasks:
+The application is implemented as a Streamlit web application with authentication, user-specific project brief history, exportable workflow results, formal evaluation, Docker containerization, Render deployment, and Kubernetes validation.
 
-- generate functional and non-functional requirements from a project idea;
-- review requirements for ambiguity, incompleteness, inconsistency, and unverifiable wording;
-- generate structured test cases from requirements;
-- suggest a simple software architecture;
-- keep the human user in control through review and refinement.
+## Live Links
 
-## Data Strategy
+- **GitHub Repository:** https://github.com/K-ishu/LLM_Virtual_Agent
+- **Live Application:** https://llm-virtual-agent-1.onrender.com
 
-The project uses **online datasets, downloaded once and stored locally**. The runtime system does not depend on live web crawling. This makes the project reproducible and easier to evaluate.
+## Main Features
 
-```text
-Online public datasets
-        ↓
-data_sources/download_datasets.py
-        ↓
-data/raw/
-        ↓
-data_sources/prepare_benchmark.py
-        ↓
-data/processed/
-        ↓
-Local retrieval context + evaluation benchmark
-```
+- Local login and sign-up system
+- Optional email field during registration
+- Duplicate username handling
+- Password hashing
+- Session-based authentication and logout
+- User-specific project brief history
+- Six AI-assisted software engineering workflow modules
+- Markdown, JSON, Word, and PDF export
+- Optional local dataset context
+- AI chat support panel
+- Formal prompt-based evaluation with 20 project briefs
+- Dockerized application runtime
+- Render live deployment
+- Kubernetes-ready deployment manifests
+- GitHub Actions CI/CD workflows
 
-The Streamlit UI has an optional **Use local dataset context** checkbox. When enabled, the assistant retrieves the most relevant examples from `data/processed/` and passes them to the LLM as local reference context.
+## Workflow Modules
 
-## Online Data Sources
+| Module | Purpose |
+|---|---|
+| Requirements | Generates assumptions, clarification questions, functional requirements, non-functional requirements, and risks |
+| Review | Detects ambiguity, missing acceptance criteria, contradictions, unverifiable statements, and improvement opportunities |
+| Test Cases | Generates structured test cases with preconditions, steps, expected results, priority, and traceability |
+| Architecture | Suggests architecture style, components, data flow, technology stack, deployment view, and security considerations |
+| Code Analysis | Identifies likely technologies, quality findings, security issues, and improvement recommendations |
+| Security | Generates abuse cases, security risks, privacy risks, mitigations, and validation tests |
 
-The project is configured for these public requirements-engineering/security sources:
+## System Architecture
 
-- PURE requirements dataset: https://zenodo.org/records/1414117
-- User stories requirements dataset: https://zenodo.org/records/13880060
-- FR/NFR requirements dataset: https://data.mendeley.com/datasets/4ysx9fyzv4/1
-- OWASP user security stories: https://github.com/OWASP/user-security-stories
+The application follows a layered architecture:
 
-Use the data only according to each source's license and terms. Some user-story datasets include curator notes about uncertain upstream licensing; use them for academic experimentation with proper citation and avoid redistributing modified copies unless permitted.
+- **Presentation Layer:** Streamlit user interface, login/sign-up pages, dashboard, workflow selection, result rendering, and export buttons.
+- **Application Layer:** Workflow orchestration and structured output generation.
+- **Prompt Layer:** Module-specific prompt templates and workflow instructions.
+- **LLM Client Layer:** OpenAI-compatible provider configuration and mock execution support.
+- **Persistence Layer:** Local prototype storage for user accounts and project brief history.
+- **Evaluation Layer:** Fixed prompt set and formal module-level evaluation results.
+- **Deployment Layer:** Docker, Render, GitHub Actions, and Kubernetes manifests.
 
-## Quick Start Without an API Key
+## Project Structure
 
-The app can run in mock mode for UI and pipeline testing.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
-cp .env.example .env
-python data_sources/prepare_benchmark.py
-streamlit run app/streamlit_app.py
-```
-
-`prepare_benchmark.py` creates a small processed corpus from the included seed examples even before online datasets are downloaded.
-
-## Download Online Data
-
-```bash
-python data_sources/download_datasets.py
-python data_sources/prepare_benchmark.py
-```
-
-Downloaded files are stored under `data/raw/`. Processed benchmark examples are stored under `data/processed/`.
-
-For the FR/NFR Mendeley dataset, follow the manual note written to:
-
-```text
-data/raw/fr_nfr_dataset/README_MANUAL_DOWNLOAD.md
-```
-
-Then rerun:
-
-```bash
-python data_sources/prepare_benchmark.py
-```
-
-## Quick Start With an OpenAI-Compatible LLM
-
-Edit `.env`:
-
-```env
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_BASE_URL=
-```
-
-Then run:
-
-```bash
-streamlit run app/streamlit_app.py
-```
-
-For local OpenAI-compatible servers such as Ollama, LM Studio, or vLLM, set `OPENAI_BASE_URL` and a compatible model name.
-
-## Run Evaluation
-
-Without retrieval context:
-
-```bash
-python evaluation/evaluate_with_rubric.py --input data/processed/eval_set.json --output data/processed/evaluation_results.json
-```
-
-With retrieval context:
-
-```bash
-python evaluation/evaluate_with_rubric.py --input data/processed/eval_set.json --output data/processed/evaluation_results_with_context.json --use-context
-```
-
-## Docker Deployment
-
-```bash
-docker compose up --build
-```
-
-Then open the Streamlit URL printed in the terminal.
-
-## Repository Structure
-
-```text
-llm_virtual_assistant_project/
+~~~text
+LLM_Virtual_Agent/
 ├── app/
 │   ├── streamlit_app.py
-│   ├── api.py
 │   ├── assistant_core.py
-│   ├── corpus.py
 │   ├── llm_client.py
 │   ├── prompts.py
 │   └── schemas.py
 ├── data/
-│   ├── seed_requirements_examples.jsonl
-│   ├── raw/
 │   └── processed/
 ├── data_sources/
-│   ├── DATA_SOURCES.md
-│   ├── download_datasets.py
-│   └── prepare_benchmark.py
 ├── evaluation/
-│   └── evaluate_with_rubric.py
-├── tests/
-│   └── test_core_mock.py
-├── report/
-│   ├── design.md
-│   └── evaluation_plan.md
+│   ├── evaluate_with_rubric.py
+│   ├── prompt_set_20_project_briefs.json
+│   ├── formal_evaluation_results.json
+│   └── formal_evaluation_report.md
+├── k8s/
+│   ├── namespace.yaml
+│   ├── configmap.yaml
+│   ├── secret.example.yaml
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── ingress.yaml
 ├── Dockerfile
 ├── docker-compose.yml
+├── render.yaml
 ├── requirements.txt
-├── pytest.ini
-├── .env.example
 └── README.md
-```
+~~~
 
+## Functional Requirements
 
+| ID | Requirement |
+|---|---|
+| FR1 | The system shall allow users to create an account, log in, and log out. |
+| FR2 | The system shall support account registration with username, password confirmation, duplicate username validation, and optional email. |
+| FR3 | The system shall allow authenticated users to enter a natural-language software project brief. |
+| FR4 | The system shall allow users to select one of six workflow modules. |
+| FR5 | The system shall generate structured requirements from a project brief. |
+| FR6 | The system shall review requirements for ambiguity and missing criteria. |
+| FR7 | The system shall generate structured test cases. |
+| FR8 | The system shall suggest software architecture and deployment views. |
+| FR9 | The system shall analyze code-quality and security concerns. |
+| FR10 | The system shall generate security risks, privacy risks, mitigations, and validation tests. |
+| FR11 | The system shall store project brief history per authenticated user. |
+| FR12 | The system shall export generated results in Markdown, JSON, Word, and PDF formats. |
 
-## DevOps, CI/CD, Cloud, and Kubernetes
+## Non-Functional Requirements
 
-The repository now includes a complete deployment stack:
+| ID | Requirement |
+|---|---|
+| NFR1 | The system shall provide a simple and usable web interface. |
+| NFR2 | The system shall support reproducible execution through mock mode and fixed evaluation prompts. |
+| NFR3 | The system shall separate UI logic, assistant logic, prompts, evaluation, and deployment artifacts. |
+| NFR4 | The system shall avoid committing real secrets or API keys. |
+| NFR5 | The system shall be deployable locally, through Docker, on Render, and on Kubernetes. |
+| NFR6 | The Kubernetes deployment shall include replicas, service discovery, health checks, ConfigMap, Secret template, and resource limits. |
+| NFR7 | The system shall support exportable outputs suitable for academic documentation. |
 
-- **Dockerfile**: production-style Streamlit container with non-root user and health check.
-- **docker-compose.yml**: local reproducible deployment.
-- **render.yaml**: Render Blueprint for cloud deployment with Docker.
-- **GitHub Actions**:
-  - `ci.yml` for tests, evaluation, and Docker build;
-  - `docker-publish.yml` for publishing images to GitHub Container Registry;
-  - `k8s-deploy.yml` for manual Kubernetes rollout.
-- **Kubernetes manifests** under `k8s/`:
-  - Namespace;
-  - ConfigMap;
-  - Secret template;
-  - Deployment;
-  - Service;
-  - Ingress.
+## Evaluation
 
-Detailed instructions are in:
+The project includes a formal prompt-based evaluation using 20 realistic software project briefs.
 
-```text
-docs/deployment.md
-docs/ci_cd.md
-k8s/README.md
-```
+The evaluation covers the following metrics:
 
-### Local Docker smoke test
+- Completeness
+- Relevance
+- Clarity
+- Structure
+- Security coverage
+- Consistency
 
-```bash
-./scripts/local_smoke_test.sh
-```
+### Evaluation Results
 
-### Render deployment
+| Workflow Module | Test Cases | Average Score | Pass Rate | Notes |
+|---|---:|---:|---:|---|
+| Requirements | 20 | 4.5 / 5 | 90% | Good FR/NFR separation |
+| Review | 20 | 4.3 / 5 | 86% | Strong ambiguity and missing-criteria detection |
+| Test Cases | 20 | 4.4 / 5 | 88% | Structured test cases with preconditions, steps, and expected results |
+| Architecture | 20 | 4.0 / 5 | 80% | Useful high-level architecture, sometimes generic |
+| Code Analysis | 20 | 4.1 / 5 | 82% | Good quality/security analysis; stronger with real code |
+| Security | 20 | 4.25 / 5 | 85% | Good abuse-case and privacy-risk coverage |
 
-Push the repository to GitHub and create a Render Blueprint from `render.yaml`. The default deployment runs in `mock` mode. For real LLM calls, set `LLM_PROVIDER=openai` and add `OPENAI_API_KEY` in Render's secret environment variables.
+## Local Execution
 
-### Kubernetes deployment
+Create and activate a virtual environment:
 
-```bash
+~~~powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+~~~
+
+Install dependencies:
+
+~~~powershell
+pip install -r requirements.txt
+~~~
+
+Run the Streamlit application:
+
+~~~powershell
+python -m streamlit run app\streamlit_app.py
+~~~
+
+Open:
+
+~~~text
+http://localhost:8501
+~~~
+
+## Docker Execution
+
+Build the Docker image:
+
+~~~powershell
+docker build -t llm-se-assistant:local .
+~~~
+
+Run the container:
+
+~~~powershell
+docker run --rm -p 8501:8501 llm-se-assistant:local
+~~~
+
+Open:
+
+~~~text
+http://localhost:8501
+~~~
+
+## Render Deployment
+
+The project includes a Render deployment configuration.
+
+The live application is available at:
+
+~~~text
+https://llm-virtual-agent-1.onrender.com
+~~~
+
+Note: the current prototype uses local JSON-based runtime persistence. On free cloud deployments, user accounts created at runtime may not persist after redeploy or restart. A production version should use PostgreSQL, Supabase, Neon, or persistent storage.
+
+## Kubernetes Deployment
+
+The project includes Kubernetes manifests under the `k8s/` directory.
+
+Apply the manifests:
+
+~~~powershell
 kubectl apply -f k8s/
+~~~
+
+Validate the deployment:
+
+~~~powershell
+kubectl -n llm-se-assistant get pods --show-labels
+kubectl -n llm-se-assistant get svc
+kubectl -n llm-se-assistant get endpoints
 kubectl -n llm-se-assistant rollout status deployment/llm-se-assistant
+~~~
+
+Port-forward the service:
+
+~~~powershell
 kubectl -n llm-se-assistant port-forward svc/llm-se-assistant 8501:80
-```
+~~~
 
-Before using Kubernetes in a real cluster, replace the placeholder image in `k8s/deployment.yaml` or deploy via the GitHub Actions Kubernetes workflow.
+Open:
 
-## Reproducibility Notes
+~~~text
+http://localhost:8501
+~~~
 
-- Prompts are versioned in `app/prompts.py`.
-- Data download scripts record a manifest in `data/raw/sources_manifest.json`.
-- Runtime retrieval uses only the local processed corpus.
-- Evaluation outputs are saved in JSON format.
-- Docker supports local deployment.
+### Kubernetes Validation Evidence
+
+The deployment was validated locally using Docker Desktop Kubernetes.
+
+~~~text
+Pods: two replicas running
+Service: ClusterIP exposed on port 80
+Endpoints: two pod endpoints mapped to port 8501
+Rollout: deployment successfully rolled out
+~~~
+
+The Kubernetes deployment includes:
+
+- Namespace
+- ConfigMap
+- Secret template
+- Deployment
+- Service
+- Ingress
+- Two replicas
+- Readiness probe
+- Liveness probe
+- Resource requests and limits
+- Container security context
+
+## CI/CD
+
+GitHub Actions workflows provide development evidence for:
+
+- CI checks
+- Docker image build and publish workflow
+- Deployment-related validation
+- Iterative project development history
+
+## Security and Privacy
+
+Implemented controls:
+
+- Password hashing
+- Local authentication
+- Logout session clearing
+- Duplicate username handling
+- User-specific project brief history
+- Secret template instead of committed real secrets
+- Kubernetes security context
+- No privilege escalation
+- Dropped Linux capabilities
+
+Future hardening:
+
+- PostgreSQL-backed persistence
+- Password reset
+- Email verification
+- MFA
+- Rate limiting
+- Account lockout
+- Centralized secret manager
+- Monitoring and structured logging
+
+## Limitations
+
+This project is an academic prototype. The main limitations are:
+
+- Runtime user data is stored locally rather than in a production database.
+- Render free deployment may reset runtime-created accounts after redeploy or restart.
+- Evaluation is prompt-based and not yet expert-human validated.
+- Code analysis currently focuses on project descriptions rather than full repository parsing.
+- Kubernetes validation was performed locally using Docker Desktop Kubernetes.
+- Monitoring is limited to application health checks and basic logs.
+
+## Future Work
+
+Planned improvements include:
+
+- PostgreSQL or Supabase persistence
+- Expert-based evaluation
+- LLM-as-judge comparison
+- Repository-level code analysis
+- Role-based access control
+- Cloud Kubernetes deployment on GKE, EKS, AKS, or a university cluster
+- Prometheus and Grafana monitoring
+- Structured logging and error tracking
+- Multi-language support
+
+## Academic Contribution
+
+The project demonstrates how LLMs can support early software-engineering work by converting informal project descriptions into structured artifacts. It combines software-engineering workflow support, human-in-the-loop interaction, reproducible evaluation, and deployment readiness into one integrated academic prototype.
+
+## Repository
+
+~~~text
+https://github.com/K-ishu/LLM_Virtual_Agent
+~~~
+
+## Live Application
+
+~~~text
+https://llm-virtual-agent-1.onrender.com
+~~~
