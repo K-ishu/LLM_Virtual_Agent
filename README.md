@@ -1,6 +1,5 @@
-﻿cd C:\Users\Mohamad\LLM_Virtual_Agent_repo
+﻿
 
-@'
 # LLM-Powered Virtual Assistant for Software Engineering
 
 An academic AI Systems Engineering project that implements an LLM-powered virtual assistant for early-stage software engineering workflows.
